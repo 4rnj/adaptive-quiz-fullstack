@@ -1,0 +1,390 @@
+/**
+ * Zustand store for adaptive quiz state management
+ * Handles session creation, question flow, and answer processing
+ */
+
+import { create } from 'zustand';
+import { devtools, persist } from 'zustand/middleware';
+import { immer } from 'zustand/middleware/immer';
+import {
+  Session,
+  Question,
+  AnswerSubmission,
+  AnswerResult,
+  ProgressIndicator,
+  SessionConfig,
+  NextAction,
+  QuizUIState,
+} from '@/types/quiz';
+import { quizApi } from '@/services/quizApi';
+
+interface QuizState {
+  // Session Management
+  currentSession: Session | null;
+  isCreatingSession: boolean;
+  
+  // Question Flow
+  currentQuestion: Question | null;
+  questionHistory: Question[];
+  isLoadingQuestion: boolean;
+  
+  // Answer Processing
+  isSubmittingAnswer: boolean;
+  lastAnswerResult: AnswerResult | null;
+  
+  // Progress Tracking
+  progress: ProgressIndicator | null;
+  
+  // UI State
+  ui: QuizUIState;
+  
+  // Error Handling
+  error: string | null;
+  
+  // Actions
+  createSession: (config: SessionConfig) => Promise<void>;
+  startSession: (sessionId: string) => Promise<void>;
+  getCurrentQuestion: () => Promise<void>;
+  submitAnswer: (submission: AnswerSubmission) => Promise<void>;
+  handleRetryQuestion: () => void;
+  completeSession: () => Promise<void>;
+  pauseSession: () => Promise<void>;
+  resumeSession: () => Promise<void>;
+  resetQuiz: () => void;
+  clearError: () => void;
+  
+  // UI Actions
+  selectAnswer: (answerId: string) => void;
+  unselectAnswer: (answerId: string) => void;
+  clearSelectedAnswers: () => void;
+  toggleExplanation: () => void;
+  setTimeRemaining: (time: number) => void;
+}
+
+export const useQuizStore = create<QuizState>()(
+  devtools(
+    persist(
+      immer((set, get) => ({
+        // Initial State
+        currentSession: null,
+        isCreatingSession: false,
+        currentQuestion: null,
+        questionHistory: [],
+        isLoadingQuestion: false,
+        isSubmittingAnswer: false,
+        lastAnswerResult: null,
+        progress: null,
+        ui: {
+          isLoading: false,
+          error: null,
+          currentQuestion: null,
+          selectedAnswers: [],
+          showExplanation: false,
+          isSubmitting: false,
+        },
+        error: null,
+
+        // Session Management Actions
+        createSession: async (config: SessionConfig) => {
+          set((state) => {
+            state.isCreatingSession = true;
+            state.error = null;
+          });
+
+          try {
+            const response = await quizApi.createSession(config);
+            
+            set((state) => {
+              state.currentSession = {
+                sessionId: response.sessionId,
+                userId: '', // Will be populated from auth
+                config: response.config,
+                status: 'CREATED',
+                questionPool: [],
+                answeredQuestions: [],
+                currentQuestion: 0,
+                totalQuestions: response.config.totalQuestions,
+                correctAnswers: 0,
+                timeSpent: 0,
+                version: 1,
+              };
+              state.isCreatingSession = false;
+            });
+          } catch (error) {
+            set((state) => {
+              state.error = error instanceof Error ? error.message : 'Failed to create session';
+              state.isCreatingSession = false;
+            });
+          }
+        },
+
+        startSession: async (sessionId: string) => {
+          set((state) => {
+            state.ui.isLoading = true;
+            state.error = null;
+          });
+
+          try {
+            await quizApi.startSession(sessionId);
+            
+            set((state) => {
+              if (state.currentSession) {
+                state.currentSession.status = 'ACTIVE';
+                state.currentSession.startedAt = new Date().toISOString();
+              }
+              state.ui.isLoading = false;
+            });
+
+            // Load first question
+            await get().getCurrentQuestion();
+          } catch (error) {
+            set((state) => {
+              state.error = error instanceof Error ? error.message : 'Failed to start session';
+              state.ui.isLoading = false;
+            });
+          }
+        },
+
+        getCurrentQuestion: async () => {
+          const { currentSession } = get();
+          if (!currentSession) return;
+
+          set((state) => {
+            state.isLoadingQuestion = true;
+            state.error = null;
+          });
+
+          try {
+            const response = await quizApi.getCurrentQuestion(currentSession.sessionId);
+            
+            set((state) => {
+              if (response.sessionComplete) {
+                state.currentQuestion = null;
+                if (state.currentSession) {
+                  state.currentSession.status = 'COMPLETED';
+                  state.currentSession.completedAt = new Date().toISOString();
+                }
+              } else if (response.question) {
+                state.currentQuestion = response.question;
+                state.ui.currentQuestion = response.question;
+                state.questionHistory.push(response.question);
+              }
+              
+              state.progress = response.progress;
+              state.isLoadingQuestion = false;
+              
+              // Clear previous answer state
+              state.ui.selectedAnswers = [];
+              state.ui.showExplanation = false;
+              state.lastAnswerResult = null;
+            });
+          } catch (error) {
+            set((state) => {
+              state.error = error instanceof Error ? error.message : 'Failed to load question';
+              state.isLoadingQuestion = false;
+            });
+          }
+        },
+
+        submitAnswer: async (submission: AnswerSubmission) => {
+          const { currentSession } = get();
+          if (!currentSession) return;
+
+          set((state) => {
+            state.isSubmittingAnswer = true;
+            state.ui.isSubmitting = true;
+            state.error = null;
+          });
+
+          try {
+            const result = await quizApi.submitAnswer(currentSession.sessionId, submission);
+            
+            set((state) => {
+              state.lastAnswerResult = result;
+              state.progress = result.progress;
+              state.isSubmittingAnswer = false;
+              state.ui.isSubmitting = false;
+              
+              // Update session stats
+              if (state.currentSession) {
+                if (result.correct) {
+                  state.currentSession.correctAnswers += 1;
+                }
+                state.currentSession.timeSpent += submission.timeSpent;
+              }
+
+              // Handle immediate retry for wrong answers
+              if (result.nextAction === NextAction.RETRY_SAME_QUESTION && result.question) {
+                state.currentQuestion = result.question;
+                state.ui.currentQuestion = result.question;
+                state.ui.selectedAnswers = [];
+                state.ui.showExplanation = false;
+              }
+              
+              // Show explanation if provided
+              if (result.explanation) {
+                state.ui.showExplanation = true;
+              }
+            });
+
+            // Auto-advance to next question if correct
+            if (result.nextAction === NextAction.NEXT_QUESTION) {
+              setTimeout(() => {
+                get().getCurrentQuestion();
+              }, 2000); // 2 second delay to show result
+            }
+          } catch (error) {
+            set((state) => {
+              state.error = error instanceof Error ? error.message : 'Failed to submit answer';
+              state.isSubmittingAnswer = false;
+              state.ui.isSubmitting = false;
+            });
+          }
+        },
+
+        handleRetryQuestion: () => {
+          set((state) => {
+            state.ui.selectedAnswers = [];
+            state.ui.showExplanation = false;
+            state.lastAnswerResult = null;
+          });
+        },
+
+        completeSession: async () => {
+          const { currentSession } = get();
+          if (!currentSession) return;
+
+          try {
+            await quizApi.completeSession(currentSession.sessionId);
+            
+            set((state) => {
+              if (state.currentSession) {
+                state.currentSession.status = 'COMPLETED';
+                state.currentSession.completedAt = new Date().toISOString();
+              }
+            });
+          } catch (error) {
+            set((state) => {
+              state.error = error instanceof Error ? error.message : 'Failed to complete session';
+            });
+          }
+        },
+
+        pauseSession: async () => {
+          const { currentSession } = get();
+          if (!currentSession) return;
+
+          try {
+            await quizApi.pauseSession(currentSession.sessionId);
+            
+            set((state) => {
+              if (state.currentSession) {
+                state.currentSession.status = 'PAUSED';
+              }
+            });
+          } catch (error) {
+            set((state) => {
+              state.error = error instanceof Error ? error.message : 'Failed to pause session';
+            });
+          }
+        },
+
+        resumeSession: async () => {
+          const { currentSession } = get();
+          if (!currentSession) return;
+
+          try {
+            await quizApi.resumeSession(currentSession.sessionId);
+            
+            set((state) => {
+              if (state.currentSession) {
+                state.currentSession.status = 'ACTIVE';
+              }
+            });
+          } catch (error) {
+            set((state) => {
+              state.error = error instanceof Error ? error.message : 'Failed to resume session';
+            });
+          }
+        },
+
+        resetQuiz: () => {
+          set((state) => {
+            state.currentSession = null;
+            state.currentQuestion = null;
+            state.questionHistory = [];
+            state.lastAnswerResult = null;
+            state.progress = null;
+            state.error = null;
+            state.ui = {
+              isLoading: false,
+              error: null,
+              currentQuestion: null,
+              selectedAnswers: [],
+              showExplanation: false,
+              isSubmitting: false,
+            };
+          });
+        },
+
+        clearError: () => {
+          set((state) => {
+            state.error = null;
+            state.ui.error = null;
+          });
+        },
+
+        // UI Actions
+        selectAnswer: (answerId: string) => {
+          set((state) => {
+            const { currentQuestion } = state;
+            if (!currentQuestion) return;
+
+            if (currentQuestion.type === 'SINGLE_CHOICE') {
+              state.ui.selectedAnswers = [answerId];
+            } else {
+              if (!state.ui.selectedAnswers.includes(answerId)) {
+                state.ui.selectedAnswers.push(answerId);
+              }
+            }
+          });
+        },
+
+        unselectAnswer: (answerId: string) => {
+          set((state) => {
+            state.ui.selectedAnswers = state.ui.selectedAnswers.filter(id => id !== answerId);
+          });
+        },
+
+        clearSelectedAnswers: () => {
+          set((state) => {
+            state.ui.selectedAnswers = [];
+          });
+        },
+
+        toggleExplanation: () => {
+          set((state) => {
+            state.ui.showExplanation = !state.ui.showExplanation;
+          });
+        },
+
+        setTimeRemaining: (time: number) => {
+          set((state) => {
+            state.ui.timeRemaining = time;
+          });
+        },
+      })),
+      {
+        name: 'quiz-store',
+        partialize: (state) => ({
+          currentSession: state.currentSession,
+          questionHistory: state.questionHistory,
+          progress: state.progress,
+        }),
+      }
+    ),
+    {
+      name: 'quiz-store',
+    }
+  )
+);

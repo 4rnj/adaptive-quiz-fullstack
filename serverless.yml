@@ -1,0 +1,509 @@
+service: quiz-adaptive-learning
+frameworkVersion: '4'
+
+custom:
+  stage: ${opt:stage, 'dev'}
+  region: ${opt:region, 'us-east-1'}
+  pythonRequirements:
+    dockerizePip: true
+    layer: true
+    zip: true
+    slim: true
+    strip: false
+  dynamodb:
+    prefix: ${self:service}-${self:custom.stage}
+  cognito:
+    userPoolName: ${self:service}-${self:custom.stage}-user-pool
+  apiName: ${self:service}-${self:custom.stage}-api
+
+provider:
+  name: aws
+  runtime: python3.13
+  region: ${self:custom.region}
+  stage: ${self:custom.stage}
+  timeout: 30
+  memorySize: 512
+  
+  environment:
+    STAGE: ${self:custom.stage}
+    REGION: ${self:custom.region}
+    USERS_TABLE: ${self:custom.dynamodb.prefix}-users
+    QUESTIONS_TABLE: ${self:custom.dynamodb.prefix}-questions
+    SESSIONS_TABLE: ${self:custom.dynamodb.prefix}-sessions
+    PROGRESS_TABLE: ${self:custom.dynamodb.prefix}-progress
+    WRONG_ANSWERS_TABLE: ${self:custom.dynamodb.prefix}-wrong-answers
+    USER_POOL_ID: !Ref CognitoUserPool
+    USER_POOL_CLIENT_ID: !Ref CognitoUserPoolClient
+    
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - dynamodb:Query
+            - dynamodb:Scan
+            - dynamodb:GetItem
+            - dynamodb:PutItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+            - dynamodb:BatchGetItem
+            - dynamodb:BatchWriteItem
+          Resource:
+            - "arn:aws:dynamodb:${self:custom.region}:*:table/${self:custom.dynamodb.prefix}-*"
+            - "arn:aws:dynamodb:${self:custom.region}:*:table/${self:custom.dynamodb.prefix}-*/index/*"
+        - Effect: Allow
+          Action:
+            - cognito-idp:AdminGetUser
+            - cognito-idp:AdminCreateUser
+            - cognito-idp:AdminUpdateUserAttributes
+            - cognito-idp:AdminDeleteUser
+          Resource: !GetAtt CognitoUserPool.Arn
+        - Effect: Allow
+          Action:
+            - xray:PutTraceSegments
+            - xray:PutTelemetryRecords
+          Resource: "*"
+
+plugins:
+  - serverless-python-requirements
+  - serverless-offline
+  - serverless-dynamodb-local
+  - serverless-plugin-tracing
+
+functions:
+  # Authentication Functions
+  authRegister:
+    handler: src/handlers/auth.register
+    events:
+      - http:
+          path: auth/register
+          method: post
+          cors: true
+    layers:
+      - !Ref PythonRequirementsLambdaLayer
+
+  authLogin:
+    handler: src/handlers/auth.login
+    events:
+      - http:
+          path: auth/login
+          method: post
+          cors: true
+    layers:
+      - !Ref PythonRequirementsLambdaLayer
+
+  # Question Management Functions
+  getCategories:
+    handler: src/handlers/questions.get_categories
+    events:
+      - http:
+          path: questions/categories
+          method: get
+          cors: true
+          authorizer:
+            name: cognitoAuthorizer
+            type: COGNITO_USER_POOLS
+            arn: !GetAtt CognitoUserPool.Arn
+    layers:
+      - !Ref PythonRequirementsLambdaLayer
+
+  searchQuestions:
+    handler: src/handlers/questions.search_questions
+    events:
+      - http:
+          path: questions/search
+          method: get
+          cors: true
+          authorizer:
+            name: cognitoAuthorizer
+            type: COGNITO_USER_POOLS
+            arn: !GetAtt CognitoUserPool.Arn
+    layers:
+      - !Ref PythonRequirementsLambdaLayer
+
+  # Session Management Functions
+  createSession:
+    handler: src/handlers/sessions.create_session
+    events:
+      - http:
+          path: sessions
+          method: post
+          cors: true
+          authorizer:
+            name: cognitoAuthorizer
+            type: COGNITO_USER_POOLS
+            arn: !GetAtt CognitoUserPool.Arn
+    layers:
+      - !Ref PythonRequirementsLambdaLayer
+
+  getSession:
+    handler: src/handlers/sessions.get_session
+    events:
+      - http:
+          path: sessions/{sessionId}
+          method: get
+          cors: true
+          authorizer:
+            name: cognitoAuthorizer
+            type: COGNITO_USER_POOLS
+            arn: !GetAtt CognitoUserPool.Arn
+    layers:
+      - !Ref PythonRequirementsLambdaLayer
+
+  startSession:
+    handler: src/handlers/sessions.start_session
+    events:
+      - http:
+          path: sessions/{sessionId}/start
+          method: post
+          cors: true
+          authorizer:
+            name: cognitoAuthorizer
+            type: COGNITO_USER_POOLS
+            arn: !GetAtt CognitoUserPool.Arn
+    layers:
+      - !Ref PythonRequirementsLambdaLayer
+
+  # Quiz Interaction Functions
+  getCurrentQuestion:
+    handler: src/handlers/quiz.get_current_question
+    events:
+      - http:
+          path: sessions/{sessionId}/question
+          method: get
+          cors: true
+          authorizer:
+            name: cognitoAuthorizer
+            type: COGNITO_USER_POOLS
+            arn: !GetAtt CognitoUserPool.Arn
+    layers:
+      - !Ref PythonRequirementsLambdaLayer
+
+  submitAnswer:
+    handler: src/handlers/quiz.submit_answer
+    events:
+      - http:
+          path: sessions/{sessionId}/answer
+          method: post
+          cors: true
+          authorizer:
+            name: cognitoAuthorizer
+            type: COGNITO_USER_POOLS
+            arn: !GetAtt CognitoUserPool.Arn
+    timeout: 15
+    layers:
+      - !Ref PythonRequirementsLambdaLayer
+
+  # Progress and Analytics Functions
+  getUserProgress:
+    handler: src/handlers/progress.get_user_progress
+    events:
+      - http:
+          path: users/{userId}/progress
+          method: get
+          cors: true
+          authorizer:
+            name: cognitoAuthorizer
+            type: COGNITO_USER_POOLS
+            arn: !GetAtt CognitoUserPool.Arn
+    layers:
+      - !Ref PythonRequirementsLambdaLayer
+
+  getWrongAnswers:
+    handler: src/handlers/progress.get_wrong_answers
+    events:
+      - http:
+          path: users/{userId}/wrong-answers
+          method: get
+          cors: true
+          authorizer:
+            name: cognitoAuthorizer
+            type: COGNITO_USER_POOLS
+            arn: !GetAtt CognitoUserPool.Arn
+    layers:
+      - !Ref PythonRequirementsLambdaLayer
+
+  # Admin Functions
+  addQuestions:
+    handler: src/handlers/admin.add_questions
+    events:
+      - http:
+          path: admin/questions
+          method: post
+          cors: true
+          authorizer:
+            name: cognitoAuthorizer
+            type: COGNITO_USER_POOLS
+            arn: !GetAtt CognitoUserPool.Arn
+    timeout: 60
+    layers:
+      - !Ref PythonRequirementsLambdaLayer
+
+  # Background Processing Functions
+  processWrongAnswers:
+    handler: src/handlers/background.process_wrong_answers
+    events:
+      - schedule: rate(5 minutes)
+    layers:
+      - !Ref PythonRequirementsLambdaLayer
+
+  cleanupSessions:
+    handler: src/handlers/background.cleanup_sessions
+    events:
+      - schedule: rate(1 hour)
+    layers:
+      - !Ref PythonRequirementsLambdaLayer
+
+resources:
+  Resources:
+    # Cognito User Pool
+    CognitoUserPool:
+      Type: AWS::Cognito::UserPool
+      Properties:
+        UserPoolName: ${self:custom.cognito.userPoolName}
+        AliasAttributes:
+          - email
+        AutoVerifiedAttributes:
+          - email
+        Policies:
+          PasswordPolicy:
+            MinimumLength: 8
+            RequireUppercase: true
+            RequireLowercase: true
+            RequireNumbers: true
+            RequireSymbols: true
+        Schema:
+          - AttributeDataType: String
+            Name: email
+            Required: true
+            Mutable: true
+          - AttributeDataType: String
+            Name: preferred_username
+            Required: false
+            Mutable: true
+
+    CognitoUserPoolClient:
+      Type: AWS::Cognito::UserPoolClient
+      Properties:
+        ClientName: ${self:custom.cognito.userPoolName}-client
+        UserPoolId: !Ref CognitoUserPool
+        GenerateSecret: false
+        ExplicitAuthFlows:
+          - ADMIN_NO_SRP_AUTH
+          - USER_PASSWORD_AUTH
+        RefreshTokenValidity: 30
+        AccessTokenValidity: 1
+        IdTokenValidity: 1
+
+    # DynamoDB Tables
+    UsersTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.dynamodb.prefix}-users
+        BillingMode: ON_DEMAND
+        AttributeDefinitions:
+          - AttributeName: userId
+            AttributeType: S
+          - AttributeName: email
+            AttributeType: S
+        KeySchema:
+          - AttributeName: userId
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: email-index
+            KeySchema:
+              - AttributeName: email
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+        StreamSpecification:
+          StreamViewType: NEW_AND_OLD_IMAGES
+        PointInTimeRecoverySpecification:
+          PointInTimeRecoveryEnabled: true
+        SSESpecification:
+          SSEEnabled: true
+
+    QuestionsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.dynamodb.prefix}-questions
+        BillingMode: ON_DEMAND
+        AttributeDefinitions:
+          - AttributeName: questionId
+            AttributeType: S
+          - AttributeName: category
+            AttributeType: S
+          - AttributeName: language_difficulty
+            AttributeType: S
+          - AttributeName: provider_certificate
+            AttributeType: S
+        KeySchema:
+          - AttributeName: questionId
+            KeyType: HASH
+          - AttributeName: category
+            KeyType: RANGE
+        GlobalSecondaryIndexes:
+          - IndexName: category-language-index
+            KeySchema:
+              - AttributeName: category
+                KeyType: HASH
+              - AttributeName: language_difficulty
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+          - IndexName: provider-certificate-index
+            KeySchema:
+              - AttributeName: provider_certificate
+                KeyType: HASH
+              - AttributeName: questionId
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+        PointInTimeRecoverySpecification:
+          PointInTimeRecoveryEnabled: true
+        SSESpecification:
+          SSEEnabled: true
+
+    SessionsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.dynamodb.prefix}-sessions
+        BillingMode: ON_DEMAND
+        AttributeDefinitions:
+          - AttributeName: sessionId
+            AttributeType: S
+          - AttributeName: userId
+            AttributeType: S
+          - AttributeName: status_startedAt
+            AttributeType: S
+        KeySchema:
+          - AttributeName: sessionId
+            KeyType: HASH
+          - AttributeName: userId
+            KeyType: RANGE
+        GlobalSecondaryIndexes:
+          - IndexName: userId-status-index
+            KeySchema:
+              - AttributeName: userId
+                KeyType: HASH
+              - AttributeName: status_startedAt
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+        TimeToLiveSpecification:
+          AttributeName: ttl
+          Enabled: true
+        PointInTimeRecoverySpecification:
+          PointInTimeRecoveryEnabled: true
+        SSESpecification:
+          SSEEnabled: true
+
+    ProgressTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.dynamodb.prefix}-progress
+        BillingMode: ON_DEMAND
+        AttributeDefinitions:
+          - AttributeName: userId
+            AttributeType: S
+          - AttributeName: questionId
+            AttributeType: S
+          - AttributeName: sessionId
+            AttributeType: S
+          - AttributeName: wrongPool_firstSeen
+            AttributeType: S
+        KeySchema:
+          - AttributeName: userId
+            KeyType: HASH
+          - AttributeName: questionId
+            KeyType: RANGE
+        GlobalSecondaryIndexes:
+          - IndexName: userId-wrongPool-index
+            KeySchema:
+              - AttributeName: userId
+                KeyType: HASH
+              - AttributeName: wrongPool_firstSeen
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+          - IndexName: sessionId-index
+            KeySchema:
+              - AttributeName: sessionId
+                KeyType: HASH
+            Projection:
+              ProjectionType: ALL
+        PointInTimeRecoverySpecification:
+          PointInTimeRecoveryEnabled: true
+        SSESpecification:
+          SSEEnabled: true
+
+    WrongAnswersTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.dynamodb.prefix}-wrong-answers
+        BillingMode: ON_DEMAND
+        AttributeDefinitions:
+          - AttributeName: userId
+            AttributeType: S
+          - AttributeName: timestamp
+            AttributeType: S
+          - AttributeName: remainingTries_timestamp
+            AttributeType: S
+        KeySchema:
+          - AttributeName: userId
+            KeyType: HASH
+          - AttributeName: timestamp
+            KeyType: RANGE
+        GlobalSecondaryIndexes:
+          - IndexName: userId-remainingTries-index
+            KeySchema:
+              - AttributeName: userId
+                KeyType: HASH
+              - AttributeName: remainingTries_timestamp
+                KeyType: RANGE
+            Projection:
+              ProjectionType: ALL
+        TimeToLiveSpecification:
+          AttributeName: ttl
+          Enabled: true
+        PointInTimeRecoverySpecification:
+          PointInTimeRecoveryEnabled: true
+        SSESpecification:
+          SSEEnabled: true
+
+    # CloudWatch Log Groups
+    ApiGatewayLogGroup:
+      Type: AWS::Logs::LogGroup
+      Properties:
+        LogGroupName: /aws/apigateway/${self:custom.apiName}
+        RetentionInDays: 14
+
+  Outputs:
+    ApiGatewayRestApiId:
+      Value: !Ref ApiGatewayRestApi
+      Export:
+        Name: ${self:service}-${self:custom.stage}-ApiGatewayRestApiId
+
+    ApiGatewayRestApiRootResourceId:
+      Value: !GetAtt ApiGatewayRestApi.RootResourceId
+      Export:
+        Name: ${self:service}-${self:custom.stage}-ApiGatewayRestApiRootResourceId
+
+    UserPoolId:
+      Value: !Ref CognitoUserPool
+      Export:
+        Name: ${self:service}-${self:custom.stage}-UserPoolId
+
+    UserPoolClientId:
+      Value: !Ref CognitoUserPoolClient
+      Export:
+        Name: ${self:service}-${self:custom.stage}-UserPoolClientId
+
+package:
+  patterns:
+    - '!**'
+    - 'src/**'
+    - '!src/**/__pycache__/**'
+    - '!src/**/tests/**'
+    - '!src/**/*.pyc'
+    - '!src/**/.pytest_cache/**'
