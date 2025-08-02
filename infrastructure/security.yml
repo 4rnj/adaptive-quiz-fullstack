@@ -1,0 +1,427 @@
+Resources:
+  # WAF Web ACL for API Gateway Protection
+  WebACL:
+    Type: AWS::WAFv2::WebACL
+    Condition: IsWafEnabled
+    Properties:
+      Name: ${self:service}-${self:custom.stage}-web-acl
+      Scope: REGIONAL
+      Description: WAF rules for Adaptive Quiz API protection
+      DefaultAction:
+        Allow: {}
+      Rules:
+        # Rate limiting rule
+        - Name: RateLimitRule
+          Priority: 1
+          Statement:
+            RateBasedStatement:
+              Limit: 2000
+              AggregateKeyType: IP
+          Action:
+            Block: {}
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: RateLimitRule
+        
+        # IP reputation rule
+        - Name: AWSManagedRulesAmazonIpReputationList
+          Priority: 2
+          OverrideAction:
+            None: {}
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesAmazonIpReputationList
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: AmazonIpReputationList
+        
+        # Known bad inputs rule
+        - Name: AWSManagedRulesKnownBadInputsRuleSet
+          Priority: 3
+          OverrideAction:
+            None: {}
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesKnownBadInputsRuleSet
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: KnownBadInputsRuleSet
+        
+        # Core rule set
+        - Name: AWSManagedRulesCommonRuleSet
+          Priority: 4
+          OverrideAction:
+            None: {}
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesCommonRuleSet
+              ExcludedRules:
+                - Name: SizeRestrictions_BODY
+                - Name: GenericRFI_BODY
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: CommonRuleSet
+        
+        # SQL injection protection
+        - Name: AWSManagedRulesSQLiRuleSet
+          Priority: 5
+          OverrideAction:
+            None: {}
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesSQLiRuleSet
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: SQLiRuleSet
+      
+      VisibilityConfig:
+        SampledRequestsEnabled: true
+        CloudWatchMetricsEnabled: true
+        MetricName: ${self:service}-${self:custom.stage}-web-acl
+      
+      Tags:
+        - Key: Project
+          Value: adaptive-quiz-app
+        - Key: Environment
+          Value: ${self:custom.stage}
+
+  # WAF Association with API Gateway
+  WebACLAssociation:
+    Type: AWS::WAFv2::WebACLAssociation
+    Condition: IsWafEnabled
+    Properties:
+      ResourceArn: !Sub 'arn:aws:apigateway:${AWS::Region}::/restapis/${ApiGatewayRestApi}/stages/${self:custom.stage}'
+      WebACLArn: !GetAtt WebACL.Arn
+
+  # Security Group for Lambda functions
+  LambdaSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Condition: IsVpcEnabled
+    Properties:
+      GroupName: ${self:service}-${self:custom.stage}-lambda-sg
+      GroupDescription: Security group for Lambda functions
+      VpcId: !Ref VPC
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: HTTPS outbound
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: HTTP outbound
+      Tags:
+        - Key: Project
+          Value: adaptive-quiz-app
+        - Key: Environment
+          Value: ${self:custom.stage}
+
+  # VPC for Lambda functions (optional)
+  VPC:
+    Type: AWS::EC2::VPC
+    Condition: IsVpcEnabled
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: ${self:service}-${self:custom.stage}-vpc
+        - Key: Project
+          Value: adaptive-quiz-app
+        - Key: Environment
+          Value: ${self:custom.stage}
+
+  # Private subnets for Lambda
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Condition: IsVpcEnabled
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: ${self:service}-${self:custom.stage}-private-subnet-1
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Condition: IsVpcEnabled
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: ${self:service}-${self:custom.stage}-private-subnet-2
+
+  # NAT Gateway for Lambda internet access
+  NATGateway:
+    Type: AWS::EC2::NatGateway
+    Condition: IsVpcEnabled
+    Properties:
+      AllocationId: !GetAtt EIPForNAT.AllocationId
+      SubnetId: !Ref PublicSubnet1
+
+  EIPForNAT:
+    Type: AWS::EC2::EIP
+    Condition: IsVpcEnabled
+    Properties:
+      Domain: vpc
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Condition: IsVpcEnabled
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.100.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+
+  # Route tables
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Condition: IsVpcEnabled
+    Properties:
+      VpcId: !Ref VPC
+
+  PrivateRoute:
+    Type: AWS::EC2::Route
+    Condition: IsVpcEnabled
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGateway
+
+  # IAM Role for Security Lambda Functions
+  SecurityLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ${self:service}-${self:custom.stage}-security-lambda-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+      Policies:
+        - PolicyName: SecurityPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - wafv2:GetWebACL
+                  - wafv2:UpdateWebACL
+                  - cloudwatch:PutMetricData
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+
+  # CloudTrail for API auditing
+  CloudTrail:
+    Type: AWS::CloudTrail::Trail
+    Condition: IsAuditingEnabled
+    Properties:
+      TrailName: ${self:service}-${self:custom.stage}-cloudtrail
+      S3BucketName: !Ref CloudTrailS3Bucket
+      S3KeyPrefix: cloudtrail-logs/
+      IncludeGlobalServiceEvents: true
+      IsLogging: true
+      IsMultiRegionTrail: true
+      EnableLogFileValidation: true
+      EventSelectors:
+        - ReadWriteType: All
+          IncludeManagementEvents: true
+          DataResources:
+            - Type: AWS::S3::Object
+              Values:
+                - !Sub '${DataS3Bucket}/*'
+            - Type: AWS::DynamoDB::Table
+              Values:
+                - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${self:custom.dynamodb.prefix}-*'
+
+  # S3 Bucket for CloudTrail logs
+  CloudTrailS3Bucket:
+    Type: AWS::S3::Bucket
+    Condition: IsAuditingEnabled
+    Properties:
+      BucketName: ${self:service}-${self:custom.stage}-cloudtrail-logs
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldLogs
+            Status: Enabled
+            ExpirationInDays: 90
+
+  # CloudTrail S3 Bucket Policy
+  CloudTrailS3BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Condition: IsAuditingEnabled
+    Properties:
+      Bucket: !Ref CloudTrailS3Bucket
+      PolicyDocument:
+        Statement:
+          - Sid: AWSCloudTrailAclCheck
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: s3:GetBucketAcl
+            Resource: !GetAtt CloudTrailS3Bucket.Arn
+          - Sid: AWSCloudTrailWrite
+            Effect: Allow
+            Principal:
+              Service: cloudtrail.amazonaws.com
+            Action: s3:PutObject
+            Resource: !Sub '${CloudTrailS3Bucket}/*'
+            Condition:
+              StringEquals:
+                's3:x-amz-acl': bucket-owner-full-control
+
+  # GuardDuty for threat detection
+  GuardDutyDetector:
+    Type: AWS::GuardDuty::Detector
+    Condition: IsGuardDutyEnabled
+    Properties:
+      Enable: true
+      FindingPublishingFrequency: FIFTEEN_MINUTES
+
+  # Config for compliance monitoring
+  ConfigDeliveryChannel:
+    Type: AWS::Config::DeliveryChannel
+    Condition: IsConfigEnabled
+    Properties:
+      Name: ${self:service}-${self:custom.stage}-config-delivery-channel
+      S3BucketName: !Ref ConfigS3Bucket
+
+  ConfigS3Bucket:
+    Type: AWS::S3::Bucket
+    Condition: IsConfigEnabled
+    Properties:
+      BucketName: ${self:service}-${self:custom.stage}-config-logs
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  # Secrets Manager for sensitive configuration
+  DatabaseSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: ${self:service}/${self:custom.stage}/database
+      Description: Database connection secrets for Adaptive Quiz
+      GenerateSecretString:
+        SecretStringTemplate: '{"username": "admin"}'
+        GenerateStringKey: 'password'
+        PasswordLength: 32
+        ExcludeCharacters: '"@/\'
+
+  JWTSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: ${self:service}/${self:custom.stage}/jwt
+      Description: JWT signing secrets for Adaptive Quiz
+      GenerateSecretString:
+        PasswordLength: 64
+        ExcludePunctuation: true
+
+Conditions:
+  IsProduction:
+    Fn::Equals:
+      - ${self:custom.stage}
+      - prod
+
+  IsWafEnabled:
+    Fn::Or:
+      - Fn::Equals:
+          - ${self:custom.stage}
+          - staging
+      - Fn::Equals:
+          - ${self:custom.stage}
+          - prod
+
+  IsVpcEnabled:
+    Fn::Equals:
+      - ${self:custom.stage}
+      - prod
+
+  IsAuditingEnabled:
+    Fn::Or:
+      - Fn::Equals:
+          - ${self:custom.stage}
+          - staging
+      - Fn::Equals:
+          - ${self:custom.stage}
+          - prod
+
+  IsGuardDutyEnabled:
+    Fn::Equals:
+      - ${self:custom.stage}
+      - prod
+
+  IsConfigEnabled:
+    Fn::Equals:
+      - ${self:custom.stage}
+      - prod
+
+Outputs:
+  WebACLArn:
+    Condition: IsWafEnabled
+    Value: !GetAtt WebACL.Arn
+    Export:
+      Name: ${self:service}-${self:custom.stage}-web-acl-arn
+
+  SecurityGroupId:
+    Condition: IsVpcEnabled
+    Value: !Ref LambdaSecurityGroup
+    Export:
+      Name: ${self:service}-${self:custom.stage}-lambda-sg-id
+
+  VPCId:
+    Condition: IsVpcEnabled
+    Value: !Ref VPC
+    Export:
+      Name: ${self:service}-${self:custom.stage}-vpc-id
+
+  PrivateSubnetIds:
+    Condition: IsVpcEnabled
+    Value: !Join
+      - ','
+      - - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+    Export:
+      Name: ${self:service}-${self:custom.stage}-private-subnet-ids
+
+  DatabaseSecretArn:
+    Value: !Ref DatabaseSecret
+    Export:
+      Name: ${self:service}-${self:custom.stage}-database-secret-arn
+
+  JWTSecretArn:
+    Value: !Ref JWTSecret
+    Export:
+      Name: ${self:service}-${self:custom.stage}-jwt-secret-arn

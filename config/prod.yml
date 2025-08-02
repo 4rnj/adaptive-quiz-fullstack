@@ -1,0 +1,180 @@
+# Production Environment Configuration
+
+# General settings
+stage: prod
+region: us-east-1
+profile: production
+
+# Resource naming
+service: adaptive-quiz-app
+stackName: ${self:service}-${self:custom.stage}
+
+# Performance settings
+lambda:
+  memory: 1024
+  timeout: 300
+  reservedConcurrency: 200
+
+# DynamoDB settings
+dynamodb:
+  billingMode: on-demand  # Auto-scaling for production
+  pointInTimeRecovery: true
+  deletionProtection: true
+  backupEnabled: true
+
+# Auto-scaling (managed by on-demand billing)
+autoScaling:
+  enabled: false  # Handled by on-demand
+
+# Monitoring and alerting
+monitoring:
+  enabled: true
+  logRetention: 30  # days
+  metricsEnabled: true
+  detailedMonitoring: true
+  
+# Alerts
+alerts:
+  enabled: true
+  snsTopicName: ${self:service}-${self:custom.stage}-alerts
+  emailEndpoints:
+    - admin@adaptivequiz.com
+    - alerts@adaptivequiz.com
+  slackWebhook: ${ssm:/adaptive-quiz/prod/slack-webhook-url}
+  
+# Domain configuration
+domain:
+  enabled: true
+  name: api.adaptivequiz.com
+  certificateArn: "arn:aws:acm:us-east-1:123456789012:certificate/prod-example"
+  hostedZoneId: "Z123456789"
+
+# CORS settings
+cors:
+  origins:
+    - https://adaptivequiz.com
+    - https://admin.adaptivequiz.com
+    - https://www.adaptivequiz.com
+  allowCredentials: true
+  maxAge: 86400
+
+# Security settings
+security:
+  enforceHttps: true
+  enableWaf: true
+  enableXray: true
+  enableGuardDuty: true
+  
+# JWT settings
+jwt:
+  issuer: adaptive-quiz
+  audience: adaptive-quiz-users
+  expirationTime: 2h  # 2 hours for security
+  
+# Rate limiting
+rateLimit:
+  enabled: true
+  requestsPerMinute: 1000
+  burstLimit: 2000
+  throttleLimit: 10000
+
+# Environment variables
+environment:
+  LOG_LEVEL: WARN
+  ENABLE_CORS: true
+  ENABLE_METRICS: true
+  DEBUG_MODE: false
+  PRODUCTION_MODE: true
+  
+# Frontend settings
+frontend:
+  s3Bucket: ${self:service}-${self:custom.stage}-frontend
+  cloudFrontEnabled: true
+  indexDocument: index.html
+  errorDocument: error.html
+  cacheTtl: 31536000  # 1 year for static assets
+  gzipCompression: true
+
+# Database settings
+database:
+  encryptionAtRest: true
+  encryptionInTransit: true
+  backupRetention: 90  # days
+  
+# Cost optimization
+costOptimization:
+  enabled: true
+  scheduleExpressions:
+    - "rate(12 hours)"  # Cleanup twice daily
+  budgetAlerts: true
+  costThreshold: 500  # USD per month
+  
+# Feature flags
+features:
+  adaptiveLearning: true
+  analytics: true
+  multiSourceQuiz: true
+  realTimeProgress: true
+  wrongAnswerPool: true
+  advancedAnalytics: true
+  
+# External integrations
+integrations:
+  emailProvider: ses
+  analyticsProvider: cloudwatch
+  cdnProvider: cloudfront
+  
+# Production specific settings
+production:
+  seedData: false
+  mockExternalServices: false
+  enableTestRoutes: false
+  skipAuthForTestRoutes: false
+  performanceMonitoring: true
+  errorTracking: true
+  
+# High availability
+highAvailability:
+  enabled: true
+  multiAz: true
+  crossRegionReplication: true
+  disasterRecovery: true
+  
+# Backup settings
+backup:
+  enabled: true
+  frequency: hourly
+  retentionPeriod: 90  # days
+  crossRegionReplication: true
+  encryptedBackups: true
+  
+# Compliance
+compliance:
+  gdprCompliant: true
+  ccpaCompliant: true
+  hipaaCompliant: false
+  sox404Compliant: false
+  
+# Data retention
+dataRetention:
+  userSessions: 365  # days
+  analytics: 1095   # 3 years
+  auditLogs: 2555   # 7 years
+  
+# Performance targets
+performance:
+  apiResponseTime: 200  # ms
+  frontendLoadTime: 2000  # ms
+  availabilityTarget: 99.9  # percent
+  
+# Scaling limits
+scaling:
+  maxConcurrentLambdas: 1000
+  maxDynamoDbReadCapacity: 40000
+  maxDynamoDbWriteCapacity: 40000
+  
+# Alerting thresholds
+alerting:
+  errorRate: 1  # percent
+  latencyP99: 5000  # ms
+  availabilityThreshold: 99.5  # percent

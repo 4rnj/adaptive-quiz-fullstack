@@ -1,0 +1,138 @@
+# Staging Environment Configuration
+
+# General settings
+stage: staging
+region: us-east-1
+profile: default
+
+# Resource naming
+service: adaptive-quiz-app
+stackName: ${self:service}-${self:custom.stage}
+
+# Performance settings
+lambda:
+  memory: 512
+  timeout: 60
+  reservedConcurrency: 50
+
+# DynamoDB settings
+dynamodb:
+  billingMode: provisioned
+  readCapacity: 10
+  writeCapacity: 10
+  pointInTimeRecovery: true
+  deletionProtection: true
+
+# Auto-scaling
+autoScaling:
+  enabled: true
+  minCapacity: 10
+  maxCapacity: 100
+  targetUtilization: 70
+
+# Monitoring and alerting
+monitoring:
+  enabled: true
+  logRetention: 14  # days
+  metricsEnabled: true
+  
+# Alerts
+alerts:
+  enabled: true
+  snsTopicName: ${self:service}-${self:custom.stage}-alerts
+  emailEndpoints:
+    - admin@adaptivequiz.com
+  
+# Domain configuration
+domain:
+  enabled: true
+  name: api-staging.adaptivequiz.com
+  certificateArn: "arn:aws:acm:us-east-1:123456789012:certificate/example"
+  hostedZoneId: "Z123456789"
+
+# CORS settings
+cors:
+  origins:
+    - https://staging.adaptivequiz.com
+    - https://staging-admin.adaptivequiz.com
+  allowCredentials: true
+  maxAge: 86400
+
+# Security settings
+security:
+  enforceHttps: true
+  enableWaf: true
+  enableXray: true
+  
+# JWT settings
+jwt:
+  issuer: adaptive-quiz-staging
+  audience: adaptive-quiz-users
+  expirationTime: 8h  # 8 hours
+  
+# Rate limiting
+rateLimit:
+  enabled: true
+  requestsPerMinute: 500
+  burstLimit: 1000
+
+# Environment variables
+environment:
+  LOG_LEVEL: INFO
+  ENABLE_CORS: true
+  ENABLE_METRICS: true
+  DEBUG_MODE: false
+  
+# Frontend settings
+frontend:
+  s3Bucket: ${self:service}-${self:custom.stage}-frontend
+  cloudFrontEnabled: true
+  indexDocument: index.html
+  errorDocument: error.html
+  cacheTtl: 86400  # 1 day
+
+# Database settings
+database:
+  encryptionAtRest: true
+  backupRetention: 30  # days
+  
+# Cost optimization
+costOptimization:
+  enabled: true
+  scheduleExpressions:
+    - "rate(6 hours)"  # Cleanup every 6 hours
+  
+# Feature flags
+features:
+  adaptiveLearning: true
+  analytics: true
+  multiSourceQuiz: true
+  realTimeProgress: true
+  wrongAnswerPool: true
+  betaFeatures: true
+  
+# External integrations
+integrations:
+  emailProvider: ses
+  analyticsProvider: cloudwatch
+  
+# Staging specific settings
+staging:
+  seedData: true
+  mockExternalServices: false
+  enableTestRoutes: true
+  skipAuthForTestRoutes: false
+  performanceMonitoring: true
+  
+# Load testing
+loadTesting:
+  enabled: true
+  maxConcurrentUsers: 100
+  testDuration: 300  # 5 minutes
+  
+# Backup settings
+backup:
+  enabled: true
+  frequency: daily
+  retentionPeriod: 30  # days
+  crossRegionReplication: false

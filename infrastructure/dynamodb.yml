@@ -1,0 +1,435 @@
+Resources:
+  # Users Table
+  UsersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: ${self:custom.dynamodb.prefix}-users
+      BillingMode: ${self:custom.dynamodb.capacityMode}
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+        - AttributeName: email
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: email-index
+          KeySchema:
+            - AttributeName: email
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+          ProvisionedThroughput:
+            Fn::If:
+              - IsProvisionedMode
+              - ReadCapacityUnits: ${self:custom.dynamodb.readCapacity}
+                WriteCapacityUnits: ${self:custom.dynamodb.writeCapacity}
+              - !Ref AWS::NoValue
+      ProvisionedThroughput:
+        Fn::If:
+          - IsProvisionedMode
+          - ReadCapacityUnits: ${self:custom.dynamodb.readCapacity}
+            WriteCapacityUnits: ${self:custom.dynamodb.writeCapacity}
+          - !Ref AWS::NoValue
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - Key: Project
+          Value: adaptive-quiz-app
+        - Key: Environment
+          Value: ${self:custom.stage}
+        - Key: TableType
+          Value: Users
+
+  # Questions Table
+  QuestionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: ${self:custom.dynamodb.prefix}-questions
+      BillingMode: ${self:custom.dynamodb.capacityMode}
+      AttributeDefinitions:
+        - AttributeName: questionId
+          AttributeType: S
+        - AttributeName: category
+          AttributeType: S
+        - AttributeName: language_difficulty
+          AttributeType: S
+        - AttributeName: provider_certificate
+          AttributeType: S
+      KeySchema:
+        - AttributeName: questionId
+          KeyType: HASH
+        - AttributeName: category
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: category-language-index
+          KeySchema:
+            - AttributeName: category
+              KeyType: HASH
+            - AttributeName: language_difficulty
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+          ProvisionedThroughput:
+            Fn::If:
+              - IsProvisionedMode
+              - ReadCapacityUnits: ${self:custom.dynamodb.readCapacity}
+                WriteCapacityUnits: ${self:custom.dynamodb.writeCapacity}
+              - !Ref AWS::NoValue
+        - IndexName: provider-certificate-index
+          KeySchema:
+            - AttributeName: provider_certificate
+              KeyType: HASH
+            - AttributeName: questionId
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+          ProvisionedThroughput:
+            Fn::If:
+              - IsProvisionedMode
+              - ReadCapacityUnits: ${self:custom.dynamodb.readCapacity}
+                WriteCapacityUnits: ${self:custom.dynamodb.writeCapacity}
+              - !Ref AWS::NoValue
+      ProvisionedThroughput:
+        Fn::If:
+          - IsProvisionedMode
+          - ReadCapacityUnits: ${self:custom.dynamodb.readCapacity}
+            WriteCapacityUnits: ${self:custom.dynamodb.writeCapacity}
+          - !Ref AWS::NoValue
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - Key: Project
+          Value: adaptive-quiz-app
+        - Key: Environment
+          Value: ${self:custom.stage}
+        - Key: TableType
+          Value: Questions
+
+  # Sessions Table
+  SessionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: ${self:custom.dynamodb.prefix}-sessions
+      BillingMode: ${self:custom.dynamodb.capacityMode}
+      AttributeDefinitions:
+        - AttributeName: sessionId
+          AttributeType: S
+        - AttributeName: userId
+          AttributeType: S
+        - AttributeName: status_startedAt
+          AttributeType: S
+      KeySchema:
+        - AttributeName: sessionId
+          KeyType: HASH
+        - AttributeName: userId
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: userId-status-index
+          KeySchema:
+            - AttributeName: userId
+              KeyType: HASH
+            - AttributeName: status_startedAt
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+          ProvisionedThroughput:
+            Fn::If:
+              - IsProvisionedMode
+              - ReadCapacityUnits: ${self:custom.dynamodb.readCapacity}
+                WriteCapacityUnits: ${self:custom.dynamodb.writeCapacity}
+              - !Ref AWS::NoValue
+      ProvisionedThroughput:
+        Fn::If:
+          - IsProvisionedMode
+          - ReadCapacityUnits: ${self:custom.dynamodb.readCapacity}
+            WriteCapacityUnits: ${self:custom.dynamodb.writeCapacity}
+          - !Ref AWS::NoValue
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - Key: Project
+          Value: adaptive-quiz-app
+        - Key: Environment
+          Value: ${self:custom.stage}
+        - Key: TableType
+          Value: Sessions
+
+  # Progress Table
+  ProgressTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: ${self:custom.dynamodb.prefix}-progress
+      BillingMode: ${self:custom.dynamodb.capacityMode}
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+        - AttributeName: questionId
+          AttributeType: S
+        - AttributeName: sessionId
+          AttributeType: S
+        - AttributeName: wrongPool_firstSeen
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+        - AttributeName: questionId
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: userId-wrongPool-index
+          KeySchema:
+            - AttributeName: userId
+              KeyType: HASH
+            - AttributeName: wrongPool_firstSeen
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+          ProvisionedThroughput:
+            Fn::If:
+              - IsProvisionedMode
+              - ReadCapacityUnits: ${self:custom.dynamodb.readCapacity}
+                WriteCapacityUnits: ${self:custom.dynamodb.writeCapacity}
+              - !Ref AWS::NoValue
+        - IndexName: sessionId-index
+          KeySchema:
+            - AttributeName: sessionId
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+          ProvisionedThroughput:
+            Fn::If:
+              - IsProvisionedMode
+              - ReadCapacityUnits: ${self:custom.dynamodb.readCapacity}
+                WriteCapacityUnits: ${self:custom.dynamodb.writeCapacity}
+              - !Ref AWS::NoValue
+      ProvisionedThroughput:
+        Fn::If:
+          - IsProvisionedMode
+          - ReadCapacityUnits: ${self:custom.dynamodb.readCapacity}
+            WriteCapacityUnits: ${self:custom.dynamodb.writeCapacity}
+          - !Ref AWS::NoValue
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - Key: Project
+          Value: adaptive-quiz-app
+        - Key: Environment
+          Value: ${self:custom.stage}
+        - Key: TableType
+          Value: Progress
+
+  # Wrong Answers Table
+  WrongAnswersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: ${self:custom.dynamodb.prefix}-wrong-answers
+      BillingMode: ${self:custom.dynamodb.capacityMode}
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+        - AttributeName: timestamp
+          AttributeType: S
+        - AttributeName: remainingTries_timestamp
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+        - AttributeName: timestamp
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: userId-remainingTries-index
+          KeySchema:
+            - AttributeName: userId
+              KeyType: HASH
+            - AttributeName: remainingTries_timestamp
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+          ProvisionedThroughput:
+            Fn::If:
+              - IsProvisionedMode
+              - ReadCapacityUnits: ${self:custom.dynamodb.readCapacity}
+                WriteCapacityUnits: ${self:custom.dynamodb.writeCapacity}
+              - !Ref AWS::NoValue
+      ProvisionedThroughput:
+        Fn::If:
+          - IsProvisionedMode
+          - ReadCapacityUnits: ${self:custom.dynamodb.readCapacity}
+            WriteCapacityUnits: ${self:custom.dynamodb.writeCapacity}
+          - !Ref AWS::NoValue
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - Key: Project
+          Value: adaptive-quiz-app
+        - Key: Environment
+          Value: ${self:custom.stage}
+        - Key: TableType
+          Value: WrongAnswers
+
+  # Analytics Table
+  AnalyticsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: ${self:custom.dynamodb.prefix}-analytics
+      BillingMode: ${self:custom.dynamodb.capacityMode}
+      AttributeDefinitions:
+        - AttributeName: userId
+          AttributeType: S
+        - AttributeName: timestamp
+          AttributeType: S
+        - AttributeName: sessionId
+          AttributeType: S
+        - AttributeName: eventType_timestamp
+          AttributeType: S
+      KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+        - AttributeName: timestamp
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: sessionId-index
+          KeySchema:
+            - AttributeName: sessionId
+              KeyType: HASH
+            - AttributeName: timestamp
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+          ProvisionedThroughput:
+            Fn::If:
+              - IsProvisionedMode
+              - ReadCapacityUnits: ${self:custom.dynamodb.readCapacity}
+                WriteCapacityUnits: ${self:custom.dynamodb.writeCapacity}
+              - !Ref AWS::NoValue
+        - IndexName: userId-eventType-index
+          KeySchema:
+            - AttributeName: userId
+              KeyType: HASH
+            - AttributeName: eventType_timestamp
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+          ProvisionedThroughput:
+            Fn::If:
+              - IsProvisionedMode
+              - ReadCapacityUnits: ${self:custom.dynamodb.readCapacity}
+                WriteCapacityUnits: ${self:custom.dynamodb.writeCapacity}
+              - !Ref AWS::NoValue
+      ProvisionedThroughput:
+        Fn::If:
+          - IsProvisionedMode
+          - ReadCapacityUnits: ${self:custom.dynamodb.readCapacity}
+            WriteCapacityUnits: ${self:custom.dynamodb.writeCapacity}
+          - !Ref AWS::NoValue
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+      Tags:
+        - Key: Project
+          Value: adaptive-quiz-app
+        - Key: Environment
+          Value: ${self:custom.stage}
+        - Key: TableType
+          Value: Analytics
+
+  # Auto Scaling for DynamoDB Tables (Production only)
+  UsersTableReadCapacityScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Condition: IsAutoScalingEnabled
+    Properties:
+      MaxCapacity: ${self:custom.autoScaling.maxCapacity}
+      MinCapacity: ${self:custom.autoScaling.minCapacity}
+      ResourceId: table/${self:custom.dynamodb.prefix}-users
+      RoleARN: !GetAtt DynamoDBScalingRole.Arn
+      ScalableDimension: dynamodb:table:ReadCapacityUnits
+      ServiceNamespace: dynamodb
+
+  UsersTableWriteCapacityScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Condition: IsAutoScalingEnabled
+    Properties:
+      MaxCapacity: ${self:custom.autoScaling.maxCapacity}
+      MinCapacity: ${self:custom.autoScaling.minCapacity}
+      ResourceId: table/${self:custom.dynamodb.prefix}-users
+      RoleARN: !GetAtt DynamoDBScalingRole.Arn
+      ScalableDimension: dynamodb:table:WriteCapacityUnits
+      ServiceNamespace: dynamodb
+
+  DynamoDBScalingRole:
+    Type: AWS::IAM::Role
+    Condition: IsAutoScalingEnabled
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: application-autoscaling.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/DynamoDBAutoscaleRole
+
+Conditions:
+  IsProvisionedMode:
+    Fn::Equals:
+      - ${self:custom.dynamodb.capacityMode}
+      - provisioned
+  IsAutoScalingEnabled:
+    Fn::Equals:
+      - ${self:custom.autoScaling.enabled}
+      - true
+
+Outputs:
+  UsersTableName:
+    Value: !Ref UsersTable
+    Export:
+      Name: ${self:service}-${self:custom.stage}-users-table
+  
+  QuestionsTableName:
+    Value: !Ref QuestionsTable
+    Export:
+      Name: ${self:service}-${self:custom.stage}-questions-table
+  
+  SessionsTableName:
+    Value: !Ref SessionsTable
+    Export:
+      Name: ${self:service}-${self:custom.stage}-sessions-table
+  
+  ProgressTableName:
+    Value: !Ref ProgressTable
+    Export:
+      Name: ${self:service}-${self:custom.stage}-progress-table
+  
+  WrongAnswersTableName:
+    Value: !Ref WrongAnswersTable
+    Export:
+      Name: ${self:service}-${self:custom.stage}-wrong-answers-table
+  
+  AnalyticsTableName:
+    Value: !Ref AnalyticsTable
+    Export:
+      Name: ${self:service}-${self:custom.stage}-analytics-table

@@ -1,0 +1,121 @@
+# Development Environment Configuration
+
+# General settings
+stage: dev
+region: us-east-1
+profile: default
+
+# Resource naming
+service: adaptive-quiz-app
+stackName: ${self:service}-${self:custom.stage}
+
+# Performance settings
+lambda:
+  memory: 256
+  timeout: 30
+  reservedConcurrency: 10
+
+# DynamoDB settings
+dynamodb:
+  billingMode: provisioned
+  readCapacity: 5
+  writeCapacity: 5
+  pointInTimeRecovery: false
+  deletionProtection: false
+
+# Auto-scaling (disabled for dev)
+autoScaling:
+  enabled: false
+  minCapacity: 5
+  maxCapacity: 20
+  targetUtilization: 70
+
+# Monitoring and alerting
+monitoring:
+  enabled: false
+  logRetention: 7  # days
+  metricsEnabled: true
+  
+# Alerts (disabled for dev)
+alerts:
+  enabled: false
+  snsTopicName: ${self:service}-${self:custom.stage}-alerts
+
+# Domain configuration
+domain:
+  enabled: false
+  name: api-dev.adaptivequiz.com
+  certificateArn: ""
+  hostedZoneId: ""
+
+# CORS settings
+cors:
+  origins:
+    - http://localhost:3000
+    - http://localhost:5173
+    - http://localhost:8080
+  allowCredentials: true
+  maxAge: 86400
+
+# Security settings
+security:
+  enforceHttps: false
+  enableWaf: false
+  enableXray: true
+  
+# JWT settings
+jwt:
+  issuer: adaptive-quiz-dev
+  audience: adaptive-quiz-users
+  expirationTime: 24h  # 24 hours for dev convenience
+  
+# Rate limiting
+rateLimit:
+  enabled: false
+  requestsPerMinute: 1000
+  burstLimit: 2000
+
+# Environment variables
+environment:
+  LOG_LEVEL: DEBUG
+  ENABLE_CORS: true
+  ENABLE_METRICS: true
+  DEBUG_MODE: true
+  
+# Frontend settings
+frontend:
+  s3Bucket: ${self:service}-${self:custom.stage}-frontend
+  cloudFrontEnabled: false
+  indexDocument: index.html
+  errorDocument: error.html
+
+# Database settings
+database:
+  encryptionAtRest: false
+  backupRetention: 7  # days
+  
+# Cost optimization
+costOptimization:
+  enabled: true
+  scheduleExpressions:
+    - "rate(1 hour)"  # Cleanup every hour in dev
+  
+# Feature flags
+features:
+  adaptiveLearning: true
+  analytics: true
+  multiSourceQuiz: true
+  realTimeProgress: true
+  wrongAnswerPool: true
+  
+# External integrations
+integrations:
+  emailProvider: ses
+  analyticsProvider: cloudwatch
+  
+# Development specific settings
+development:
+  seedData: true
+  mockExternalServices: true
+  enableTestRoutes: true
+  skipAuthForTestRoutes: true

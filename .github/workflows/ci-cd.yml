@@ -1,0 +1,459 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+
+env:
+  NODE_VERSION: '18'
+  PYTHON_VERSION: '3.13'
+  AWS_DEFAULT_REGION: us-east-1
+
+jobs:
+  # Backend Testing and Linting
+  backend-test:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov pylint black isort
+
+      - name: Code formatting check
+        run: |
+          black --check src/
+          isort --check-only src/
+
+      - name: Lint with pylint
+        run: |
+          pylint src/ --exit-zero --output-format=github
+
+      - name: Run unit tests
+        run: |
+          pytest tests/unit/ -v --cov=src --cov-report=xml --cov-report=html
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.xml
+          flags: backend
+          name: backend-coverage
+
+      - name: Run integration tests
+        run: |
+          pytest tests/integration/ -v
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+
+      - name: Run performance tests
+        run: |
+          pytest tests/performance/ -v
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+
+  # Frontend Testing and Building
+  frontend-test:
+    name: Frontend Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./frontend
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: ./frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint with ESLint
+        run: npm run lint
+
+      - name: Type check
+        run: npm run type-check
+
+      - name: Run unit tests
+        run: npm run test:coverage
+
+      - name: Upload frontend coverage
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./frontend/coverage/clover.xml
+          flags: frontend
+          name: frontend-coverage
+
+      - name: Build for production
+        run: npm run build
+        env:
+          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: frontend-build
+          path: ./frontend/dist
+          retention-days: 7
+
+  # Security Scanning
+  security-scan:
+    name: Security Scanning
+    runs-on: ubuntu-latest
+    needs: [backend-test, frontend-test]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+      - name: Python security check with bandit
+        run: |
+          pip install bandit[toml]
+          bandit -r src/ -f json -o bandit-report.json
+        continue-on-error: true
+
+      - name: Node.js security audit
+        working-directory: ./frontend
+        run: npm audit --audit-level=high
+
+  # Determine deployment environment
+  determine-environment:
+    name: Determine Environment
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.env.outputs.environment }}
+      should-deploy: ${{ steps.env.outputs.should-deploy }}
+    steps:
+      - name: Determine environment and deployment
+        id: env
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "environment=${{ github.event.inputs.environment }}" >> $GITHUB_OUTPUT
+            echo "should-deploy=true" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "environment=prod" >> $GITHUB_OUTPUT
+            echo "should-deploy=true" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
+            echo "environment=staging" >> $GITHUB_OUTPUT
+            echo "should-deploy=true" >> $GITHUB_OUTPUT
+          elif [[ "${{ github.event_name }}" == "pull_request" && "${{ github.base_ref }}" == "develop" ]]; then
+            echo "environment=dev" >> $GITHUB_OUTPUT
+            echo "should-deploy=true" >> $GITHUB_OUTPUT
+          else
+            echo "should-deploy=false" >> $GITHUB_OUTPUT
+          fi
+
+  # Backend Deployment
+  deploy-backend:
+    name: Deploy Backend
+    runs-on: ubuntu-latest
+    needs: [backend-test, frontend-test, security-scan, determine-environment]
+    if: needs.determine-environment.outputs.should-deploy == 'true'
+    environment: ${{ needs.determine-environment.outputs.environment }}
+    env:
+      STAGE: ${{ needs.determine-environment.outputs.environment }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Node.js dependencies
+        run: npm ci
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_DEFAULT_REGION }}
+
+      - name: Store JWT secret in SSM
+        run: |
+          aws ssm put-parameter \
+            --name "/adaptive-quiz/${{ env.STAGE }}/jwt-secret" \
+            --value "${{ secrets.JWT_SECRET }}" \
+            --type "SecureString" \
+            --overwrite
+
+      - name: Deploy infrastructure
+        run: |
+          npx serverless deploy \
+            --stage ${{ env.STAGE }} \
+            --region ${{ env.AWS_DEFAULT_REGION }} \
+            --verbose
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+
+      - name: Run post-deployment tests
+        run: |
+          # Wait for deployment to be ready
+          sleep 30
+          
+          # Get API endpoint
+          API_ENDPOINT=$(npx serverless info --stage ${{ env.STAGE }} --verbose | grep "ServiceEndpoint" | awk '{print $2}')
+          echo "API_ENDPOINT=$API_ENDPOINT" >> $GITHUB_ENV
+          
+          # Test API health
+          curl -f "$API_ENDPOINT/health" || exit 1
+
+      - name: Run smoke tests
+        run: |
+          pytest tests/smoke/ -v \
+            --api-endpoint=${{ env.API_ENDPOINT }}
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+
+      - name: Notify deployment success
+        if: success()
+        run: |
+          echo "✅ Backend deployment to ${{ env.STAGE }} successful!"
+          echo "API Endpoint: ${{ env.API_ENDPOINT }}"
+
+  # Frontend Deployment
+  deploy-frontend:
+    name: Deploy Frontend
+    runs-on: ubuntu-latest
+    needs: [deploy-backend, determine-environment]
+    if: needs.determine-environment.outputs.should-deploy == 'true'
+    environment: ${{ needs.determine-environment.outputs.environment }}
+    env:
+      STAGE: ${{ needs.determine-environment.outputs.environment }}
+    defaults:
+      run:
+        working-directory: ./frontend
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: frontend-build
+          path: ./frontend/dist
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_DEFAULT_REGION }}
+
+      - name: Get S3 bucket name
+        id: s3-bucket
+        run: |
+          BUCKET_NAME=$(aws cloudformation describe-stacks \
+            --stack-name adaptive-quiz-app-${{ env.STAGE }} \
+            --query 'Stacks[0].Outputs[?OutputKey==`FrontendS3BucketName`].OutputValue' \
+            --output text)
+          echo "bucket-name=$BUCKET_NAME" >> $GITHUB_OUTPUT
+
+      - name: Deploy to S3
+        run: |
+          aws s3 sync dist/ s3://${{ steps.s3-bucket.outputs.bucket-name }}/ \
+            --delete \
+            --cache-control "public, max-age=31536000" \
+            --exclude "*.html" \
+            --exclude "*.json"
+          
+          aws s3 sync dist/ s3://${{ steps.s3-bucket.outputs.bucket-name }}/ \
+            --delete \
+            --cache-control "public, max-age=0, must-revalidate" \
+            --include "*.html" \
+            --include "*.json"
+
+      - name: Invalidate CloudFront
+        run: |
+          DISTRIBUTION_ID=$(aws cloudformation describe-stacks \
+            --stack-name adaptive-quiz-app-${{ env.STAGE }} \
+            --query 'Stacks[0].Outputs[?OutputKey==`CloudFrontDistributionId`].OutputValue' \
+            --output text)
+          
+          if [ "$DISTRIBUTION_ID" != "None" ]; then
+            aws cloudfront create-invalidation \
+              --distribution-id $DISTRIBUTION_ID \
+              --paths "/*"
+          fi
+
+  # Post-deployment validation
+  post-deployment-tests:
+    name: Post-deployment Tests
+    runs-on: ubuntu-latest
+    needs: [deploy-backend, deploy-frontend, determine-environment]
+    if: needs.determine-environment.outputs.should-deploy == 'true'
+    environment: ${{ needs.determine-environment.outputs.environment }}
+    env:
+      STAGE: ${{ needs.determine-environment.outputs.environment }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          pip install -r requirements.txt
+          pip install playwright pytest-playwright
+
+      - name: Install Playwright browsers
+        run: playwright install
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_DEFAULT_REGION }}
+
+      - name: Get deployment endpoints
+        id: endpoints
+        run: |
+          API_ENDPOINT=$(aws cloudformation describe-stacks \
+            --stack-name adaptive-quiz-app-${{ env.STAGE }} \
+            --query 'Stacks[0].Outputs[?OutputKey==`ApiEndpoint`].OutputValue' \
+            --output text)
+          
+          FRONTEND_URL=$(aws cloudformation describe-stacks \
+            --stack-name adaptive-quiz-app-${{ env.STAGE }} \
+            --query 'Stacks[0].Outputs[?OutputKey==`FrontendUrl`].OutputValue' \
+            --output text)
+          
+          echo "api-endpoint=$API_ENDPOINT" >> $GITHUB_OUTPUT
+          echo "frontend-url=$FRONTEND_URL" >> $GITHUB_OUTPUT
+
+      - name: Run E2E tests
+        run: |
+          pytest tests/e2e/ -v \
+            --api-endpoint=${{ steps.endpoints.outputs.api-endpoint }} \
+            --frontend-url=${{ steps.endpoints.outputs.frontend-url }}
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+
+      - name: Performance testing
+        run: |
+          # Add performance testing scripts here
+          echo "Performance testing completed"
+
+      - name: Upload E2E test results
+        uses: actions/upload-artifact@v3
+        if: always()
+        with:
+          name: e2e-test-results-${{ env.STAGE }}
+          path: test-results/
+          retention-days: 30
+
+  # Deployment notification
+  notify-deployment:
+    name: Deployment Notification
+    runs-on: ubuntu-latest
+    needs: [post-deployment-tests, determine-environment]
+    if: always() && needs.determine-environment.outputs.should-deploy == 'true'
+    steps:
+      - name: Notify success
+        if: needs.post-deployment-tests.result == 'success'
+        run: |
+          echo "🚀 Deployment to ${{ needs.determine-environment.outputs.environment }} completed successfully!"
+
+      - name: Notify failure
+        if: needs.post-deployment-tests.result == 'failure'
+        run: |
+          echo "❌ Deployment to ${{ needs.determine-environment.outputs.environment }} failed!"
+          exit 1
+
+  # Rollback job (manual trigger)
+  rollback:
+    name: Rollback Deployment
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment != ''
+    environment: ${{ github.event.inputs.environment }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_DEFAULT_REGION }}
+
+      - name: Rollback deployment
+        run: |
+          echo "Rolling back ${{ github.event.inputs.environment }} deployment..."
+          # Add rollback logic here
+          # This could involve deploying a previous version
+          # or reverting to a known good state

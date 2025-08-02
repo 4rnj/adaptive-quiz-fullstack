@@ -1,0 +1,316 @@
+Resources:
+  # CloudWatch Log Groups
+  ApiGatewayLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/apigateway/${self:custom.apiName}
+      RetentionInDays:
+        Fn::If:
+          - IsProduction
+          - 30
+          - 14
+
+  LambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/${self:service}-${self:custom.stage}
+      RetentionInDays:
+        Fn::If:
+          - IsProduction
+          - 30
+          - 14
+
+  # SNS Topic for Alerts
+  AlertsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: ${self:service}-${self:custom.stage}-alerts
+      DisplayName: Adaptive Quiz Alerts - ${self:custom.stage}
+
+  # CloudWatch Alarms for API Gateway
+  ApiGateway4XXErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: IsAlertsEnabled
+    Properties:
+      AlarmName: ${self:service}-${self:custom.stage}-api-4xx-errors
+      AlarmDescription: API Gateway 4XX errors
+      MetricName: 4XXError
+      Namespace: AWS/ApiGateway
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 10
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: ApiName
+          Value: ${self:custom.apiName}
+        - Name: Stage
+          Value: ${self:custom.stage}
+      AlarmActions:
+        - !Ref AlertsTopic
+
+  ApiGateway5XXErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: IsAlertsEnabled
+    Properties:
+      AlarmName: ${self:service}-${self:custom.stage}-api-5xx-errors
+      AlarmDescription: API Gateway 5XX errors
+      MetricName: 5XXError
+      Namespace: AWS/ApiGateway
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: ApiName
+          Value: ${self:custom.apiName}
+        - Name: Stage
+          Value: ${self:custom.stage}
+      AlarmActions:
+        - !Ref AlertsTopic
+
+  ApiGatewayLatencyAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: IsAlertsEnabled
+    Properties:
+      AlarmName: ${self:service}-${self:custom.stage}-api-latency
+      AlarmDescription: API Gateway high latency
+      MetricName: Latency
+      Namespace: AWS/ApiGateway
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 5000
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: ApiName
+          Value: ${self:custom.apiName}
+        - Name: Stage
+          Value: ${self:custom.stage}
+      AlarmActions:
+        - !Ref AlertsTopic
+
+  # CloudWatch Alarms for DynamoDB
+  DynamoDBThrottleAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: IsAlertsEnabled
+    Properties:
+      AlarmName: ${self:service}-${self:custom.stage}-dynamodb-throttles
+      AlarmDescription: DynamoDB read/write throttles
+      MetricName: ThrottledRequests
+      Namespace: AWS/DynamoDB
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions:
+        - !Ref AlertsTopic
+
+  DynamoDBErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: IsAlertsEnabled
+    Properties:
+      AlarmName: ${self:service}-${self:custom.stage}-dynamodb-errors
+      AlarmDescription: DynamoDB system errors
+      MetricName: SystemErrors
+      Namespace: AWS/DynamoDB
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions:
+        - !Ref AlertsTopic
+
+  # CloudWatch Dashboard
+  ApplicationDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: ${self:service}-${self:custom.stage}-dashboard
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "metrics": [
+                  [ "AWS/ApiGateway", "Count", "ApiName", "${self:custom.apiName}", "Stage", "${self:custom.stage}" ],
+                  [ ".", "4XXError", ".", ".", ".", "." ],
+                  [ ".", "5XXError", ".", ".", ".", "." ]
+                ],
+                "view": "timeSeries",
+                "stacked": false,
+                "region": "${AWS::Region}",
+                "title": "API Gateway Requests",
+                "period": 300
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "metrics": [
+                  [ "AWS/ApiGateway", "Latency", "ApiName", "${self:custom.apiName}", "Stage", "${self:custom.stage}" ]
+                ],
+                "view": "timeSeries",
+                "stacked": false,
+                "region": "${AWS::Region}",
+                "title": "API Gateway Latency",
+                "period": 300
+              }
+            },
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 6,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "metrics": [
+                  [ "AWS/Lambda", "Duration", "FunctionName", "${self:service}-${self:custom.stage}-sessionCreate" ],
+                  [ ".", "Errors", ".", "." ],
+                  [ ".", "Throttles", ".", "." ]
+                ],
+                "view": "timeSeries",
+                "stacked": false,
+                "region": "${AWS::Region}",
+                "title": "Lambda Metrics",
+                "period": 300
+              }
+            },
+            {
+              "type": "metric",
+              "x": 12,
+              "y": 6,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "metrics": [
+                  [ "AWS/DynamoDB", "ConsumedReadCapacityUnits", "TableName", "${self:custom.dynamodb.prefix}-sessions" ],
+                  [ ".", "ConsumedWriteCapacityUnits", ".", "." ],
+                  [ ".", "ThrottledRequests", ".", "." ]
+                ],
+                "view": "timeSeries",
+                "stacked": false,
+                "region": "${AWS::Region}",
+                "title": "DynamoDB Metrics",
+                "period": 300
+              }
+            }
+          ]
+        }
+
+  # Custom Metrics for Application Performance
+  ApplicationMetricsFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref LambdaLogGroup
+      FilterPattern: "[timestamp, requestId, level=\"ERROR\", ...]"
+      MetricTransformations:
+        - MetricNamespace: AdaptiveQuiz/${self:custom.stage}
+          MetricName: ApplicationErrors
+          MetricValue: "1"
+          DefaultValue: 0
+
+  QuizSessionMetricsFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref LambdaLogGroup
+      FilterPattern: "[timestamp, requestId, level, message=\"QUIZ_SESSION_COMPLETED\", ...]"
+      MetricTransformations:
+        - MetricNamespace: AdaptiveQuiz/${self:custom.stage}
+          MetricName: QuizSessionsCompleted
+          MetricValue: "1"
+          DefaultValue: 0
+
+  WrongAnswerMetricsFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      LogGroupName: !Ref LambdaLogGroup
+      FilterPattern: "[timestamp, requestId, level, message=\"WRONG_ANSWER_PROCESSED\", ...]"
+      MetricTransformations:
+        - MetricNamespace: AdaptiveQuiz/${self:custom.stage}
+          MetricName: WrongAnswersProcessed
+          MetricValue: "1"
+          DefaultValue: 0
+
+  # X-Ray Tracing Service Map
+  XRayServiceMap:
+    Type: AWS::XRay::Group
+    Properties:
+      GroupName: ${self:service}-${self:custom.stage}-service-map
+      FilterExpression: service("${self:service}-${self:custom.stage}")
+
+  # Budget Alert for Cost Management
+  CostBudget:
+    Type: AWS::Budgets::Budget
+    Condition: IsProduction
+    Properties:
+      Budget:
+        BudgetName: ${self:service}-${self:custom.stage}-monthly-budget
+        BudgetLimit:
+          Amount: 100
+          Unit: USD
+        TimeUnit: MONTHLY
+        BudgetType: COST
+        CostFilters:
+          Service:
+            - Amazon DynamoDB
+            - AWS Lambda
+            - Amazon API Gateway
+            - Amazon CloudWatch
+      NotificationsWithSubscribers:
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 80
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: ${self:custom.budgetEmail.${self:custom.stage}}
+        - Notification:
+            NotificationType: FORECASTED
+            ComparisonOperator: GREATER_THAN
+            Threshold: 100
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: ${self:custom.budgetEmail.${self:custom.stage}}
+
+Conditions:
+  IsProduction:
+    Fn::Equals:
+      - ${self:custom.stage}
+      - prod
+
+  IsAlertsEnabled:
+    Fn::Or:
+      - Fn::Equals:
+          - ${self:custom.stage}
+          - staging
+      - Fn::Equals:
+          - ${self:custom.stage}
+          - prod
+
+Outputs:
+  AlertsTopicArn:
+    Value: !Ref AlertsTopic
+    Export:
+      Name: ${self:service}-${self:custom.stage}-alerts-topic-arn
+
+  DashboardUrl:
+    Value: !Sub 'https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards:name=${self:service}-${self:custom.stage}-dashboard'
+    Export:
+      Name: ${self:service}-${self:custom.stage}-dashboard-url
+
+  ApplicationMetricsNamespace:
+    Value: AdaptiveQuiz/${self:custom.stage}
+    Export:
+      Name: ${self:service}-${self:custom.stage}-metrics-namespace

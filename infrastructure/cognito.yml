@@ -1,0 +1,319 @@
+Resources:
+  # Cognito User Pool
+  CognitoUserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: ${self:custom.cognito.userPoolName}
+      AliasAttributes:
+        - email
+        - preferred_username
+      AutoVerifiedAttributes:
+        - email
+      UsernameConfiguration:
+        CaseSensitive: false
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireUppercase: true
+          RequireLowercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+          TemporaryPasswordValidityDays: 7
+      Schema:
+        - AttributeDataType: String
+          Name: email
+          Required: true
+          Mutable: true
+        - AttributeDataType: String
+          Name: preferred_username
+          Required: false
+          Mutable: true
+        - AttributeDataType: String
+          Name: given_name
+          Required: false
+          Mutable: true
+        - AttributeDataType: String
+          Name: family_name
+          Required: false
+          Mutable: true
+      EmailConfiguration:
+        EmailSendingAccount: COGNITO_DEFAULT
+      VerificationMessageTemplate:
+        DefaultEmailOption: CONFIRM_WITH_CODE
+        EmailMessage: 'Your verification code for Adaptive Quiz is: {####}'
+        EmailSubject: 'Verify your Adaptive Quiz account'
+      UserPoolAddOns:
+        AdvancedSecurityMode:
+          Fn::If:
+            - IsProduction
+            - ENFORCED
+            - OFF
+      AdminCreateUserConfig:
+        AllowAdminCreateUserOnly: false
+        InviteMessageTemplate:
+          EmailMessage: 'Welcome to Adaptive Quiz! Your username is {username} and temporary password is {####}'
+          EmailSubject: 'Welcome to Adaptive Quiz'
+        UnusedAccountValidityDays: 7
+      UserPoolTags:
+        Project: adaptive-quiz-app
+        Environment: ${self:custom.stage}
+        Service: authentication
+
+  # Cognito User Pool Client
+  CognitoUserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: ${self:custom.cognito.userPoolName}-client
+      UserPoolId: !Ref CognitoUserPool
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ADMIN_NO_SRP_AUTH
+        - USER_PASSWORD_AUTH
+        - USER_SRP_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      RefreshTokenValidity: 30
+      AccessTokenValidity: 1
+      IdTokenValidity: 1
+      TokenValidityUnits:
+        RefreshToken: days
+        AccessToken: hours
+        IdToken: hours
+      PreventUserExistenceErrors: ENABLED
+      SupportedIdentityProviders:
+        - COGNITO
+      AllowedOAuthFlows:
+        - code
+        - implicit
+      AllowedOAuthScopes:
+        - email
+        - openid
+        - profile
+      AllowedOAuthFlowsUserPoolClient: true
+      CallbackURLs:
+        - ${self:custom.cognitoCallbacks.${self:custom.stage}}
+      LogoutURLs:
+        - ${self:custom.cognitoLogouts.${self:custom.stage}}
+      ReadAttributes:
+        - email
+        - email_verified
+        - preferred_username
+        - given_name
+        - family_name
+      WriteAttributes:
+        - email
+        - preferred_username
+        - given_name
+        - family_name
+
+  # Cognito User Pool Domain
+  CognitoUserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      Domain: ${self:service}-${self:custom.stage}-auth
+      UserPoolId: !Ref CognitoUserPool
+
+  # Identity Pool for unauthenticated access (if needed)
+  CognitoIdentityPool:
+    Type: AWS::Cognito::IdentityPool
+    Properties:
+      IdentityPoolName: ${self:service}-${self:custom.stage}-identity-pool
+      AllowUnauthenticatedIdentities: false
+      CognitoIdentityProviders:
+        - ClientId: !Ref CognitoUserPoolClient
+          ProviderName: !GetAtt CognitoUserPool.ProviderName
+
+  # Identity Pool Role Attachment
+  CognitoIdentityPoolRoleAttachment:
+    Type: AWS::Cognito::IdentityPoolRoleAttachment
+    Properties:
+      IdentityPoolId: !Ref CognitoIdentityPool
+      Roles:
+        authenticated: !GetAtt CognitoAuthenticatedRole.Arn
+        unauthenticated: !GetAtt CognitoUnauthenticatedRole.Arn
+
+  # IAM Role for authenticated users
+  CognitoAuthenticatedRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ${self:service}-${self:custom.stage}-cognito-authenticated-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: cognito-identity.amazonaws.com
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                'cognito-identity.amazonaws.com:aud': !Ref CognitoIdentityPool
+              ForAnyValue:StringLike:
+                'cognito-identity.amazonaws.com:amr': authenticated
+      Policies:
+        - PolicyName: CognitoAuthenticatedPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cognito-sync:*
+                  - cognito-identity:*
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - execute-api:Invoke
+                Resource: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:*/*/POST/*'
+              - Effect: Allow
+                Action:
+                  - execute-api:Invoke
+                Resource: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:*/*/GET/*'
+              - Effect: Allow
+                Action:
+                  - execute-api:Invoke
+                Resource: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:*/*/PUT/*'
+
+  # IAM Role for unauthenticated users
+  CognitoUnauthenticatedRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ${self:service}-${self:custom.stage}-cognito-unauthenticated-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: cognito-identity.amazonaws.com
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                'cognito-identity.amazonaws.com:aud': !Ref CognitoIdentityPool
+              ForAnyValue:StringLike:
+                'cognito-identity.amazonaws.com:amr': unauthenticated
+      Policies:
+        - PolicyName: CognitoUnauthenticatedPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cognito-sync:*
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - execute-api:Invoke
+                Resource: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:*/*/POST/auth/*'
+
+  # User Pool Groups
+  CognitoUserPoolGroupAdmins:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: Admins
+      Description: Administrator users with full access
+      UserPoolId: !Ref CognitoUserPool
+      RoleArn: !GetAtt CognitoAdminRole.Arn
+      Precedence: 0
+
+  CognitoUserPoolGroupUsers:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties:
+      GroupName: Users
+      Description: Regular users with standard access
+      UserPoolId: !Ref CognitoUserPool
+      RoleArn: !GetAtt CognitoUserRole.Arn
+      Precedence: 1
+
+  # IAM Role for Admin Group
+  CognitoAdminRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ${self:service}-${self:custom.stage}-cognito-admin-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: cognito-identity.amazonaws.com
+            Action: sts:AssumeRoleWithWebIdentity
+      Policies:
+        - PolicyName: CognitoAdminPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - execute-api:Invoke
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - dynamodb:*
+                Resource: 
+                  - !Sub 'arn:aws:dynamodb:${AWS::Region}:${AWS::AccountId}:table/${self:custom.dynamodb.prefix}-*'
+
+  # IAM Role for User Group
+  CognitoUserRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ${self:service}-${self:custom.stage}-cognito-user-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: cognito-identity.amazonaws.com
+            Action: sts:AssumeRoleWithWebIdentity
+      Policies:
+        - PolicyName: CognitoUserPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - execute-api:Invoke
+                Resource: 
+                  - !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:*/*/GET/*'
+                  - !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:*/*/POST/*'
+                  - !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:*/*/PUT/*'
+                Condition:
+                  StringEquals:
+                    'aws:userid': '${aws:userid}'
+
+Conditions:
+  IsProduction:
+    Fn::Equals:
+      - ${self:custom.stage}
+      - prod
+
+Outputs:
+  CognitoUserPoolId:
+    Value: !Ref CognitoUserPool
+    Export:
+      Name: ${self:service}-${self:custom.stage}-cognito-user-pool-id
+
+  CognitoUserPoolArn:
+    Value: !GetAtt CognitoUserPool.Arn
+    Export:
+      Name: ${self:service}-${self:custom.stage}-cognito-user-pool-arn
+
+  CognitoUserPoolClientId:
+    Value: !Ref CognitoUserPoolClient
+    Export:
+      Name: ${self:service}-${self:custom.stage}-cognito-user-pool-client-id
+
+  CognitoIdentityPoolId:
+    Value: !Ref CognitoIdentityPool
+    Export:
+      Name: ${self:service}-${self:custom.stage}-cognito-identity-pool-id
+
+  CognitoUserPoolDomain:
+    Value: !Ref CognitoUserPoolDomain
+    Export:
+      Name: ${self:service}-${self:custom.stage}-cognito-domain
+
+  CognitoAuthenticatedRoleArn:
+    Value: !GetAtt CognitoAuthenticatedRole.Arn
+    Export:
+      Name: ${self:service}-${self:custom.stage}-cognito-authenticated-role-arn
+
+  CognitoUnauthenticatedRoleArn:
+    Value: !GetAtt CognitoUnauthenticatedRole.Arn
+    Export:
+      Name: ${self:service}-${self:custom.stage}-cognito-unauthenticated-role-arn

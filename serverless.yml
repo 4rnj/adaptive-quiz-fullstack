@@ -1,43 +1,267 @@
-service: quiz-adaptive-learning
+service: adaptive-quiz-app
 frameworkVersion: '4'
 
 custom:
+  # Environment-specific configurations
   stage: ${opt:stage, 'dev'}
   region: ${opt:region, 'us-east-1'}
+  owner: adaptive-quiz-team
+  
+  # Cost center configuration
+  costCenter:
+    dev: development
+    staging: development
+    prod: production
+  
+  # Logging configuration
+  logLevel:
+    dev: DEBUG
+    staging: INFO
+    prod: WARN
+  
+  # Lambda performance configuration
+  lambdaMemory:
+    dev: 256
+    staging: 512
+    prod: 1024
+  
+  lambdaTimeout:
+    dev: 30
+    staging: 60
+    prod: 300
+  
+  # Scheduled functions
+  scheduledFunctions:
+    dev: false
+    staging: true
+    prod: true
+  
+  # Python requirements
   pythonRequirements:
     dockerizePip: true
     layer: true
-    zip: true
     slim: true
     strip: false
+    noDeps:
+      - boto3
+      - botocore
+    pipCmdExtraArgs:
+      - --no-cache-dir
+    pythonBin: python3.13
+  
+  # DynamoDB configuration
   dynamodb:
     prefix: ${self:service}-${self:custom.stage}
+    capacityMode: ${self:custom.dynamodbCapacity.${self:custom.stage}}
+    readCapacity: ${self:custom.dynamodbReadCapacity.${self:custom.stage}}
+    writeCapacity: ${self:custom.dynamodbWriteCapacity.${self:custom.stage}}
+  
+  dynamodbCapacity:
+    dev: provisioned
+    staging: provisioned
+    prod: on-demand
+  
+  dynamodbReadCapacity:
+    dev: 5
+    staging: 10
+    prod: 25
+  
+  dynamodbWriteCapacity:
+    dev: 5
+    staging: 10
+    prod: 25
+  
+  # Auto-scaling configuration
+  autoScaling:
+    enabled: ${self:custom.autoScalingEnabled.${self:custom.stage}}
+    minCapacity: ${self:custom.autoScalingMin.${self:custom.stage}}
+    maxCapacity: ${self:custom.autoScalingMax.${self:custom.stage}}
+    targetUtilization: 70
+  
+  autoScalingEnabled:
+    dev: false
+    staging: true
+    prod: true
+  
+  autoScalingMin:
+    dev: 5
+    staging: 10
+    prod: 25
+  
+  autoScalingMax:
+    dev: 20
+    staging: 100
+    prod: 500
+  
+  # Cognito configuration
   cognito:
     userPoolName: ${self:service}-${self:custom.stage}-user-pool
+  
+  cognitoCallbacks:
+    dev: http://localhost:5173/auth/callback
+    staging: https://staging.adaptivequiz.com/auth/callback
+    prod: https://adaptivequiz.com/auth/callback
+  
+  cognitoLogouts:
+    dev: http://localhost:5173/auth/logout
+    staging: https://staging.adaptivequiz.com/auth/logout
+    prod: https://adaptivequiz.com/auth/logout
+  
+  # API Gateway configuration
   apiName: ${self:service}-${self:custom.stage}-api
+  
+  # Alerting configuration
+  alerts:
+    stages:
+      - staging
+      - prod
+    topics:
+      alarm: ${self:service}-${self:custom.stage}-alerts
+    alarms:
+      - functionErrors
+      - functionThrottles
+      - functionDuration
+      - functionInvocations
+    definitions:
+      functionErrors:
+        threshold: 5
+        period: 300
+      functionDuration:
+        threshold: 30000
+        period: 300
+      functionThrottles:
+        threshold: 1
+        period: 60
+      functionInvocations:
+        threshold: 1000
+        period: 300
+  
+  # Domain management
+  customDomain:
+    domainName: ${self:custom.domainNames.${self:custom.stage}}
+    certificateName: ${self:custom.certificateNames.${self:custom.stage}}
+    createRoute53Record: true
+    endpointType: regional
+    securityPolicy: tls_1_2
+    apiType: rest
+    autoDomain: true
+  
+  domainNames:
+    dev: api-dev.adaptivequiz.com
+    staging: api-staging.adaptivequiz.com
+    prod: api.adaptivequiz.com
+  
+  certificateNames:
+    dev: "*.adaptivequiz.com"
+    staging: "*.adaptivequiz.com"
+    prod: "*.adaptivequiz.com"
+  
+  # Function warming
+  warmup:
+    enabled: ${self:custom.warmupEnabled.${self:custom.stage}}
+    events:
+      - schedule: 'rate(5 minutes)'
+    timeout: 20
+    prewarm: true
+    concurrency: 1
+    folderName: .warmup
+  
+  warmupEnabled:
+    dev: false
+    staging: true
+    prod: true
+  
+  # Pruning configuration
+  prune:
+    automatic: true
+    number: 5
+  
+  # Budget email configuration
+  budgetEmail:
+    dev: admin@adaptivequiz.com
+    staging: admin@adaptivequiz.com
+    prod: admin@adaptivequiz.com
+  
+  # API Gateway settings (for shared APIs)
+  apiGateway:
+    restApiId:
+      dev: ''
+      staging: ''
+      prod: ''
+    restApiRootResourceId:
+      dev: ''
+      staging: ''
+      prod: ''
 
 provider:
   name: aws
   runtime: python3.13
   region: ${self:custom.region}
   stage: ${self:custom.stage}
-  timeout: 30
-  memorySize: 512
+  memorySize: ${self:custom.lambdaMemory.${self:custom.stage}, 256}
+  timeout: ${self:custom.lambdaTimeout.${self:custom.stage}, 30}
   
+  # Environment variables
   environment:
     STAGE: ${self:custom.stage}
     REGION: ${self:custom.region}
+    LOG_LEVEL: ${self:custom.logLevel.${self:custom.stage}, 'INFO'}
+    DYNAMODB_TABLE_PREFIX: ${self:custom.dynamodb.prefix}
+    
+    # DynamoDB table names
     USERS_TABLE: ${self:custom.dynamodb.prefix}-users
     QUESTIONS_TABLE: ${self:custom.dynamodb.prefix}-questions
     SESSIONS_TABLE: ${self:custom.dynamodb.prefix}-sessions
     PROGRESS_TABLE: ${self:custom.dynamodb.prefix}-progress
     WRONG_ANSWERS_TABLE: ${self:custom.dynamodb.prefix}-wrong-answers
+    ANALYTICS_TABLE: ${self:custom.dynamodb.prefix}-analytics
+    
+    # Cognito configuration
     USER_POOL_ID: !Ref CognitoUserPool
     USER_POOL_CLIENT_ID: !Ref CognitoUserPoolClient
     
+    # API Gateway
+    API_GATEWAY_URL: 
+      Fn::Join:
+        - ''
+        - - 'https://'
+          - Ref: ApiGatewayRestApi
+          - '.execute-api.'
+          - ${self:custom.region}
+          - '.amazonaws.com/'
+          - ${self:custom.stage}
+    
+    # Performance monitoring
+    ENABLE_METRICS: true
+    METRICS_NAMESPACE: AdaptiveQuiz/${self:custom.stage}
+  
+  # API Gateway configuration
+  apiGateway:
+    restApiId: ${self:custom.apiGateway.restApiId.${self:custom.stage}, ''}
+    restApiRootResourceId: ${self:custom.apiGateway.restApiRootResourceId.${self:custom.stage}, ''}
+    description: Adaptive Quiz Application API - ${self:custom.stage}
+    binaryMediaTypes:
+      - '*/*'
+    minimumCompressionSize: 1024
+    
+  # Distributed tracing
+  tracing:
+    lambda: true
+    apiGateway: true
+  
+  # CloudFormation tags
+  tags:
+    Project: adaptive-quiz-app
+    Environment: ${self:custom.stage}
+    Owner: ${self:custom.owner}
+    CostCenter: ${self:custom.costCenter.${self:custom.stage}}
+    Version: ${env:GITHUB_SHA, 'local'}
+    
+  # IAM permissions
   iam:
     role:
       statements:
+        # DynamoDB permissions
         - Effect: Allow
           Action:
             - dynamodb:Query
@@ -48,462 +272,282 @@ provider:
             - dynamodb:DeleteItem
             - dynamodb:BatchGetItem
             - dynamodb:BatchWriteItem
+            - dynamodb:ConditionCheckItem
           Resource:
             - "arn:aws:dynamodb:${self:custom.region}:*:table/${self:custom.dynamodb.prefix}-*"
             - "arn:aws:dynamodb:${self:custom.region}:*:table/${self:custom.dynamodb.prefix}-*/index/*"
+        
+        # Cognito permissions
         - Effect: Allow
           Action:
             - cognito-idp:AdminGetUser
             - cognito-idp:AdminCreateUser
             - cognito-idp:AdminUpdateUserAttributes
             - cognito-idp:AdminDeleteUser
+            - cognito-idp:AdminSetUserPassword
+            - cognito-idp:AdminConfirmSignUp
           Resource: !GetAtt CognitoUserPool.Arn
+        
+        # CloudWatch Logs permissions
+        - Effect: Allow
+          Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:PutLogEvents
+          Resource: "arn:aws:logs:${self:custom.region}:*:*"
+        
+        # X-Ray tracing permissions
         - Effect: Allow
           Action:
             - xray:PutTraceSegments
             - xray:PutTelemetryRecords
           Resource: "*"
+        
+        # CloudWatch metrics permissions
+        - Effect: Allow
+          Action:
+            - cloudwatch:PutMetricData
+          Resource: "*"
+        
+        # SSM Parameter Store permissions
+        - Effect: Allow
+          Action:
+            - ssm:GetParameter
+            - ssm:GetParameters
+            - ssm:GetParametersByPath
+          Resource: "arn:aws:ssm:${self:custom.region}:*:parameter/adaptive-quiz/${self:custom.stage}/*"
 
+# Plugins
 plugins:
   - serverless-python-requirements
-  - serverless-offline
-  - serverless-dynamodb-local
   - serverless-plugin-tracing
+  - serverless-plugin-aws-alerts
+  - serverless-domain-manager
+  - serverless-prune-plugin
+  - serverless-plugin-warmup
+  - serverless-offline  # Development only
+  - serverless-dynamodb-local  # Development only
 
+# Package configuration
+package:
+  patterns:
+    - '!node_modules/**'
+    - '!frontend/**'
+    - '!docs/**'
+    - '!tests/**'
+    - '!.git/**'
+    - '!.github/**'
+    - '!*.md'
+    - 'src/**'
+    - 'requirements.txt'
+
+# Lambda functions
 functions:
   # Authentication Functions
   authRegister:
-    handler: src/handlers/auth.register
+    handler: src.handlers.auth.register
     events:
       - http:
           path: auth/register
           method: post
           cors: true
+    environment:
+      JWT_SECRET: ${ssm:/adaptive-quiz/${self:custom.stage}/jwt-secret}
     layers:
       - !Ref PythonRequirementsLambdaLayer
 
   authLogin:
-    handler: src/handlers/auth.login
+    handler: src.handlers.auth.login
     events:
       - http:
           path: auth/login
           method: post
           cors: true
+    environment:
+      JWT_SECRET: ${ssm:/adaptive-quiz/${self:custom.stage}/jwt-secret}
     layers:
       - !Ref PythonRequirementsLambdaLayer
-
-  # Question Management Functions
-  getCategories:
-    handler: src/handlers/questions.get_categories
+  
+  authRefresh:
+    handler: src.handlers.auth.refresh
     events:
       - http:
-          path: questions/categories
-          method: get
+          path: auth/refresh
+          method: post
           cors: true
-          authorizer:
-            name: cognitoAuthorizer
-            type: COGNITO_USER_POOLS
-            arn: !GetAtt CognitoUserPool.Arn
-    layers:
-      - !Ref PythonRequirementsLambdaLayer
-
-  searchQuestions:
-    handler: src/handlers/questions.search_questions
-    events:
-      - http:
-          path: questions/search
-          method: get
-          cors: true
-          authorizer:
-            name: cognitoAuthorizer
-            type: COGNITO_USER_POOLS
-            arn: !GetAtt CognitoUserPool.Arn
+    environment:
+      JWT_SECRET: ${ssm:/adaptive-quiz/${self:custom.stage}/jwt-secret}
     layers:
       - !Ref PythonRequirementsLambdaLayer
 
   # Session Management Functions
-  createSession:
-    handler: src/handlers/sessions.create_session
+  sessionCreate:
+    handler: src.handlers.session.create_session_handler
     events:
       - http:
           path: sessions
           method: post
           cors: true
           authorizer:
-            name: cognitoAuthorizer
+            name: jwt-authorizer
             type: COGNITO_USER_POOLS
             arn: !GetAtt CognitoUserPool.Arn
     layers:
       - !Ref PythonRequirementsLambdaLayer
 
-  getSession:
-    handler: src/handlers/sessions.get_session
+  sessionGet:
+    handler: src.handlers.session.get_session_handler
     events:
       - http:
           path: sessions/{sessionId}
           method: get
           cors: true
           authorizer:
-            name: cognitoAuthorizer
+            name: jwt-authorizer
             type: COGNITO_USER_POOLS
             arn: !GetAtt CognitoUserPool.Arn
     layers:
       - !Ref PythonRequirementsLambdaLayer
 
-  startSession:
-    handler: src/handlers/sessions.start_session
+  sessionUpdate:
+    handler: src.handlers.session.update_session_handler
     events:
       - http:
-          path: sessions/{sessionId}/start
+          path: sessions/{sessionId}
+          method: put
+          cors: true
+          authorizer:
+            name: jwt-authorizer
+            type: COGNITO_USER_POOLS
+            arn: !GetAtt CognitoUserPool.Arn
+    layers:
+      - !Ref PythonRequirementsLambdaLayer
+
+  # Quiz Functions
+  quizNextQuestion:
+    handler: src.handlers.quiz.next_question_handler
+    events:
+      - http:
+          path: sessions/{sessionId}/next-question
           method: post
           cors: true
           authorizer:
-            name: cognitoAuthorizer
+            name: jwt-authorizer
             type: COGNITO_USER_POOLS
             arn: !GetAtt CognitoUserPool.Arn
     layers:
       - !Ref PythonRequirementsLambdaLayer
 
-  # Quiz Interaction Functions
-  getCurrentQuestion:
-    handler: src/handlers/quiz.get_current_question
+  quizSubmitAnswer:
+    handler: src.handlers.quiz.submit_answer_handler
     events:
       - http:
-          path: sessions/{sessionId}/question
-          method: get
-          cors: true
-          authorizer:
-            name: cognitoAuthorizer
-            type: COGNITO_USER_POOLS
-            arn: !GetAtt CognitoUserPool.Arn
-    layers:
-      - !Ref PythonRequirementsLambdaLayer
-
-  submitAnswer:
-    handler: src/handlers/quiz.submit_answer
-    events:
-      - http:
-          path: sessions/{sessionId}/answer
+          path: sessions/{sessionId}/submit-answer
           method: post
           cors: true
           authorizer:
-            name: cognitoAuthorizer
+            name: jwt-authorizer
             type: COGNITO_USER_POOLS
             arn: !GetAtt CognitoUserPool.Arn
     timeout: 15
     layers:
       - !Ref PythonRequirementsLambdaLayer
 
-  # Progress and Analytics Functions
-  getUserProgress:
-    handler: src/handlers/progress.get_user_progress
+  # Analytics Functions
+  analyticsSession:
+    handler: src.handlers.analytics.session_analytics_handler
     events:
       - http:
-          path: users/{userId}/progress
+          path: analytics/sessions/{sessionId}
           method: get
           cors: true
           authorizer:
-            name: cognitoAuthorizer
+            name: jwt-authorizer
             type: COGNITO_USER_POOLS
             arn: !GetAtt CognitoUserPool.Arn
     layers:
       - !Ref PythonRequirementsLambdaLayer
 
-  getWrongAnswers:
-    handler: src/handlers/progress.get_wrong_answers
+  analyticsUser:
+    handler: src.handlers.analytics.user_analytics_handler
     events:
       - http:
-          path: users/{userId}/wrong-answers
+          path: analytics/users/{userId}
           method: get
           cors: true
           authorizer:
-            name: cognitoAuthorizer
+            name: jwt-authorizer
             type: COGNITO_USER_POOLS
             arn: !GetAtt CognitoUserPool.Arn
-    layers:
-      - !Ref PythonRequirementsLambdaLayer
-
-  # Admin Functions
-  addQuestions:
-    handler: src/handlers/admin.add_questions
-    events:
-      - http:
-          path: admin/questions
-          method: post
-          cors: true
-          authorizer:
-            name: cognitoAuthorizer
-            type: COGNITO_USER_POOLS
-            arn: !GetAtt CognitoUserPool.Arn
-    timeout: 60
     layers:
       - !Ref PythonRequirementsLambdaLayer
 
   # Background Processing Functions
-  processWrongAnswers:
-    handler: src/handlers/background.process_wrong_answers
+  processAnalytics:
+    handler: src.handlers.background.process_analytics_handler
     events:
-      - schedule: rate(5 minutes)
+      - schedule:
+          rate: rate(5 minutes)
+          enabled: ${self:custom.scheduledFunctions.${self:custom.stage}}
     layers:
       - !Ref PythonRequirementsLambdaLayer
 
   cleanupSessions:
-    handler: src/handlers/background.cleanup_sessions
+    handler: src.handlers.background.cleanup_sessions_handler
     events:
-      - schedule: rate(1 hour)
+      - schedule:
+          rate: rate(1 hour)
+          enabled: ${self:custom.scheduledFunctions.${self:custom.stage}}
     layers:
       - !Ref PythonRequirementsLambdaLayer
 
+# CloudFormation resources
 resources:
-  Resources:
-    # Cognito User Pool
-    CognitoUserPool:
-      Type: AWS::Cognito::UserPool
-      Properties:
-        UserPoolName: ${self:custom.cognito.userPoolName}
-        AliasAttributes:
-          - email
-        AutoVerifiedAttributes:
-          - email
-        Policies:
-          PasswordPolicy:
-            MinimumLength: 8
-            RequireUppercase: true
-            RequireLowercase: true
-            RequireNumbers: true
-            RequireSymbols: true
-        Schema:
-          - AttributeDataType: String
-            Name: email
-            Required: true
-            Mutable: true
-          - AttributeDataType: String
-            Name: preferred_username
-            Required: false
-            Mutable: true
+  - ${file(infrastructure/dynamodb.yml)}
+  - ${file(infrastructure/cognito.yml)}
+  - ${file(infrastructure/monitoring.yml)}
+  - ${file(infrastructure/s3.yml)}
+  - ${file(infrastructure/security.yml)}
 
-    CognitoUserPoolClient:
-      Type: AWS::Cognito::UserPoolClient
-      Properties:
-        ClientName: ${self:custom.cognito.userPoolName}-client
-        UserPoolId: !Ref CognitoUserPool
-        GenerateSecret: false
-        ExplicitAuthFlows:
-          - ADMIN_NO_SRP_AUTH
-          - USER_PASSWORD_AUTH
-        RefreshTokenValidity: 30
-        AccessTokenValidity: 1
-        IdTokenValidity: 1
-
-    # DynamoDB Tables
-    UsersTable:
-      Type: AWS::DynamoDB::Table
-      Properties:
-        TableName: ${self:custom.dynamodb.prefix}-users
-        BillingMode: ON_DEMAND
-        AttributeDefinitions:
-          - AttributeName: userId
-            AttributeType: S
-          - AttributeName: email
-            AttributeType: S
-        KeySchema:
-          - AttributeName: userId
-            KeyType: HASH
-        GlobalSecondaryIndexes:
-          - IndexName: email-index
-            KeySchema:
-              - AttributeName: email
-                KeyType: HASH
-            Projection:
-              ProjectionType: ALL
-        StreamSpecification:
-          StreamViewType: NEW_AND_OLD_IMAGES
-        PointInTimeRecoverySpecification:
-          PointInTimeRecoveryEnabled: true
-        SSESpecification:
-          SSEEnabled: true
-
-    QuestionsTable:
-      Type: AWS::DynamoDB::Table
-      Properties:
-        TableName: ${self:custom.dynamodb.prefix}-questions
-        BillingMode: ON_DEMAND
-        AttributeDefinitions:
-          - AttributeName: questionId
-            AttributeType: S
-          - AttributeName: category
-            AttributeType: S
-          - AttributeName: language_difficulty
-            AttributeType: S
-          - AttributeName: provider_certificate
-            AttributeType: S
-        KeySchema:
-          - AttributeName: questionId
-            KeyType: HASH
-          - AttributeName: category
-            KeyType: RANGE
-        GlobalSecondaryIndexes:
-          - IndexName: category-language-index
-            KeySchema:
-              - AttributeName: category
-                KeyType: HASH
-              - AttributeName: language_difficulty
-                KeyType: RANGE
-            Projection:
-              ProjectionType: ALL
-          - IndexName: provider-certificate-index
-            KeySchema:
-              - AttributeName: provider_certificate
-                KeyType: HASH
-              - AttributeName: questionId
-                KeyType: RANGE
-            Projection:
-              ProjectionType: ALL
-        PointInTimeRecoverySpecification:
-          PointInTimeRecoveryEnabled: true
-        SSESpecification:
-          SSEEnabled: true
-
-    SessionsTable:
-      Type: AWS::DynamoDB::Table
-      Properties:
-        TableName: ${self:custom.dynamodb.prefix}-sessions
-        BillingMode: ON_DEMAND
-        AttributeDefinitions:
-          - AttributeName: sessionId
-            AttributeType: S
-          - AttributeName: userId
-            AttributeType: S
-          - AttributeName: status_startedAt
-            AttributeType: S
-        KeySchema:
-          - AttributeName: sessionId
-            KeyType: HASH
-          - AttributeName: userId
-            KeyType: RANGE
-        GlobalSecondaryIndexes:
-          - IndexName: userId-status-index
-            KeySchema:
-              - AttributeName: userId
-                KeyType: HASH
-              - AttributeName: status_startedAt
-                KeyType: RANGE
-            Projection:
-              ProjectionType: ALL
-        TimeToLiveSpecification:
-          AttributeName: ttl
-          Enabled: true
-        PointInTimeRecoverySpecification:
-          PointInTimeRecoveryEnabled: true
-        SSESpecification:
-          SSEEnabled: true
-
-    ProgressTable:
-      Type: AWS::DynamoDB::Table
-      Properties:
-        TableName: ${self:custom.dynamodb.prefix}-progress
-        BillingMode: ON_DEMAND
-        AttributeDefinitions:
-          - AttributeName: userId
-            AttributeType: S
-          - AttributeName: questionId
-            AttributeType: S
-          - AttributeName: sessionId
-            AttributeType: S
-          - AttributeName: wrongPool_firstSeen
-            AttributeType: S
-        KeySchema:
-          - AttributeName: userId
-            KeyType: HASH
-          - AttributeName: questionId
-            KeyType: RANGE
-        GlobalSecondaryIndexes:
-          - IndexName: userId-wrongPool-index
-            KeySchema:
-              - AttributeName: userId
-                KeyType: HASH
-              - AttributeName: wrongPool_firstSeen
-                KeyType: RANGE
-            Projection:
-              ProjectionType: ALL
-          - IndexName: sessionId-index
-            KeySchema:
-              - AttributeName: sessionId
-                KeyType: HASH
-            Projection:
-              ProjectionType: ALL
-        PointInTimeRecoverySpecification:
-          PointInTimeRecoveryEnabled: true
-        SSESpecification:
-          SSEEnabled: true
-
-    WrongAnswersTable:
-      Type: AWS::DynamoDB::Table
-      Properties:
-        TableName: ${self:custom.dynamodb.prefix}-wrong-answers
-        BillingMode: ON_DEMAND
-        AttributeDefinitions:
-          - AttributeName: userId
-            AttributeType: S
-          - AttributeName: timestamp
-            AttributeType: S
-          - AttributeName: remainingTries_timestamp
-            AttributeType: S
-        KeySchema:
-          - AttributeName: userId
-            KeyType: HASH
-          - AttributeName: timestamp
-            KeyType: RANGE
-        GlobalSecondaryIndexes:
-          - IndexName: userId-remainingTries-index
-            KeySchema:
-              - AttributeName: userId
-                KeyType: HASH
-              - AttributeName: remainingTries_timestamp
-                KeyType: RANGE
-            Projection:
-              ProjectionType: ALL
-        TimeToLiveSpecification:
-          AttributeName: ttl
-          Enabled: true
-        PointInTimeRecoverySpecification:
-          PointInTimeRecoveryEnabled: true
-        SSESpecification:
-          SSEEnabled: true
-
-    # CloudWatch Log Groups
-    ApiGatewayLogGroup:
-      Type: AWS::Logs::LogGroup
-      Properties:
-        LogGroupName: /aws/apigateway/${self:custom.apiName}
-        RetentionInDays: 14
-
-  Outputs:
-    ApiGatewayRestApiId:
-      Value: !Ref ApiGatewayRestApi
-      Export:
-        Name: ${self:service}-${self:custom.stage}-ApiGatewayRestApiId
-
-    ApiGatewayRestApiRootResourceId:
-      Value: !GetAtt ApiGatewayRestApi.RootResourceId
-      Export:
-        Name: ${self:service}-${self:custom.stage}-ApiGatewayRestApiRootResourceId
-
-    UserPoolId:
-      Value: !Ref CognitoUserPool
-      Export:
-        Name: ${self:service}-${self:custom.stage}-UserPoolId
-
-    UserPoolClientId:
-      Value: !Ref CognitoUserPoolClient
-      Export:
-        Name: ${self:service}-${self:custom.stage}-UserPoolClientId
-
-package:
-  patterns:
-    - '!**'
-    - 'src/**'
-    - '!src/**/__pycache__/**'
-    - '!src/**/tests/**'
-    - '!src/**/*.pyc'
-    - '!src/**/.pytest_cache/**'
+# Outputs
+outputs:
+  ApiGatewayRestApiId:
+    Value:
+      Ref: ApiGatewayRestApi
+    Export:
+      Name: ${self:service}-${self:custom.stage}-api-gateway-id
+  
+  ApiGatewayRestApiRootResourceId:
+    Value:
+      Fn::GetAtt:
+        - ApiGatewayRestApi
+        - RootResourceId
+    Export:
+      Name: ${self:service}-${self:custom.stage}-api-gateway-root-id
+  
+  ApiEndpoint:
+    Value:
+      Fn::Join:
+        - ''
+        - - 'https://'
+          - Ref: ApiGatewayRestApi
+          - '.execute-api.'
+          - ${self:custom.region}
+          - '.amazonaws.com/'
+          - ${self:custom.stage}
+    Export:
+      Name: ${self:service}-${self:custom.stage}-api-endpoint
+  
+  CognitoUserPoolId:
+    Value:
+      Ref: CognitoUserPool
+    Export:
+      Name: ${self:service}-${self:custom.stage}-cognito-user-pool-id
+  
+  CognitoUserPoolArn:
+    Value:
+      Fn::GetAtt:
+        - CognitoUserPool
+        - Arn
+    Export:
+      Name: ${self:service}-${self:custom.stage}-cognito-user-pool-arn
