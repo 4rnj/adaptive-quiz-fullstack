@@ -182,6 +182,10 @@ Resources:
           AttributeType: S
         - AttributeName: wrongPool_firstSeen
           AttributeType: S
+        - AttributeName: lastAttemptAt
+          AttributeType: S
+        - AttributeName: statsType
+          AttributeType: S
       KeySchema:
         - AttributeName: userId
           KeyType: HASH
@@ -206,6 +210,34 @@ Resources:
           KeySchema:
             - AttributeName: sessionId
               KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+          ProvisionedThroughput:
+            Fn::If:
+              - IsProvisionedMode
+              - ReadCapacityUnits: ${self:custom.dynamodb.readCapacity}
+                WriteCapacityUnits: ${self:custom.dynamodb.writeCapacity}
+              - !Ref AWS::NoValue
+        - IndexName: questionId-lastAttemptAt-index
+          KeySchema:
+            - AttributeName: questionId
+              KeyType: HASH
+            - AttributeName: lastAttemptAt
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+          ProvisionedThroughput:
+            Fn::If:
+              - IsProvisionedMode
+              - ReadCapacityUnits: ${self:custom.dynamodb.readCapacity}
+                WriteCapacityUnits: ${self:custom.dynamodb.writeCapacity}
+              - !Ref AWS::NoValue
+        - IndexName: userId-statsType-index
+          KeySchema:
+            - AttributeName: userId
+              KeyType: HASH
+            - AttributeName: statsType
+              KeyType: RANGE
           Projection:
             ProjectionType: ALL
           ProvisionedThroughput:
