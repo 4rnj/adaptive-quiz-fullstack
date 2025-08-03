@@ -2,7 +2,7 @@
 
 # General settings
 stage: prod
-region: us-east-1
+region: eu-central-1
 profile: production
 
 # Resource naming
@@ -46,7 +46,7 @@ alerts:
 domain:
   enabled: true
   name: api.adaptivequiz.com
-  certificateArn: "arn:aws:acm:us-east-1:123456789012:certificate/prod-example"
+  certificateArn: "arn:aws:acm:eu-central-1:123456789012:certificate/prod-example"
   hostedZoneId: "Z123456789"
 
 # CORS settings
