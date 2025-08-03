@@ -1,9 +1,11 @@
 /**
  * Quiz API service for backend integration
  * Handles all quiz-related API calls with adaptive learning backend
+ * Implements security-hardened API communication
  */
 
 import axios, { AxiosInstance, AxiosResponse } from 'axios';
+import { secureTokenManager, dispatchSecurityEvent, SecurityEvent } from '@/utils/security';
 import {
   SessionConfig,
   AnswerSubmission,
@@ -28,26 +30,63 @@ class QuizApiService {
       },
     });
 
-    // Request interceptor to add auth token
+    // Request interceptor to add auth token securely
     this.api.interceptors.request.use(
-      (config) => {
-        const token = localStorage.getItem('auth-token');
-        if (token) {
-          config.headers.Authorization = `Bearer ${token}`;
+      async (config) => {
+        try {
+          const token = await secureTokenManager.getAccessToken();
+          if (token) {
+            config.headers.Authorization = `Bearer ${token}`;
+          }
+          
+          // Add security headers
+          config.headers['X-Requested-With'] = 'XMLHttpRequest';
+          config.headers['X-Content-Type-Options'] = 'nosniff';
+          
+          return config;
+        } catch (error) {
+          dispatchSecurityEvent(SecurityEvent.SUSPICIOUS_ACTIVITY, {
+            action: 'token_access_failed',
+            error: error instanceof Error ? error.message : 'Unknown error'
+          });
+          return Promise.reject(error);
         }
-        return config;
       },
       (error) => Promise.reject(error)
     );
 
-    // Response interceptor for error handling
+    // Response interceptor for error handling with security monitoring
     this.api.interceptors.response.use(
       (response) => response,
       (error) => {
-        if (error.response?.status === 401) {
-          // Handle unauthorized - redirect to login
-          window.location.href = '/login';
+        // Security event logging
+        const status = error.response?.status;
+        const endpoint = error.config?.url;
+        
+        if (status === 401) {
+          dispatchSecurityEvent(SecurityEvent.INVALID_TOKEN, {
+            endpoint,
+            timestamp: Date.now()
+          });
+          
+          // Trigger session expiry handling
+          const event = new CustomEvent('sessionExpired');
+          window.dispatchEvent(event);
+          
+        } else if (status === 403) {
+          dispatchSecurityEvent(SecurityEvent.SUSPICIOUS_ACTIVITY, {
+            action: 'forbidden_access',
+            endpoint,
+            status
+          });
+          
+        } else if (status === 429) {
+          dispatchSecurityEvent(SecurityEvent.RATE_LIMIT_EXCEEDED, {
+            endpoint,
+            timestamp: Date.now()
+          });
         }
+        
         return Promise.reject(error);
       }
     );

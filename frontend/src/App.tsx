@@ -13,6 +13,10 @@ import { AnimatePresence } from 'framer-motion';
 import { Layout } from './components/layout/Layout';
 import { AuthLayout } from './components/layout/AuthLayout';
 
+// Security Components
+import { SecurityProvider } from './components/security/SecurityProvider';
+import { SecurityAlerts } from './components/security/SecurityAlerts';
+
 // Page Components
 import { HomePage } from './pages/HomePage';
 import { LoginPage } from './pages/LoginPage';
@@ -22,6 +26,8 @@ import { QuizPage } from './pages/QuizPage';
 import { SessionWizardPage } from './pages/SessionWizardPage';
 import { AnalyticsPage } from './pages/AnalyticsPage';
 import { ProfilePage } from './pages/ProfilePage';
+import { PrivacyPage } from './pages/PrivacyPage';
+import { SecurityDashboard } from './pages/SecurityDashboard';
 import { NotFoundPage } from './pages/NotFoundPage';
 
 // Hooks and Guards
@@ -46,8 +52,9 @@ const App: React.FC = () => {
   return (
     <QueryClientProvider client={queryClient}>
       <Router>
-        <div className="min-h-screen bg-gray-50">
-          <AnimatePresence mode="wait">
+        <SecurityProvider>
+          <div className="min-h-screen bg-gray-50">
+            <AnimatePresence mode="wait">
             <Routes>
               {/* Public Routes */}
               <Route path="/" element={<HomePage />} />
@@ -129,6 +136,28 @@ const App: React.FC = () => {
                   </ProtectedRoute>
                 }
               />
+              
+              <Route
+                path="/privacy"
+                element={
+                  <ProtectedRoute>
+                    <Layout>
+                      <PrivacyPage />
+                    </Layout>
+                  </ProtectedRoute>
+                }
+              />
+              
+              <Route
+                path="/security"
+                element={
+                  <ProtectedRoute>
+                    <Layout>
+                      <SecurityDashboard />
+                    </Layout>
+                  </ProtectedRoute>
+                }
+              />
 
               {/* 404 Route */}
               <Route path="*" element={<NotFoundPage />} />
@@ -160,7 +189,11 @@ const App: React.FC = () => {
               },
             }}
           />
-        </div>
+          
+          {/* Global Security Alerts */}
+          <SecurityAlerts />
+          </div>
+        </SecurityProvider>
       </Router>
     </QueryClientProvider>
   );

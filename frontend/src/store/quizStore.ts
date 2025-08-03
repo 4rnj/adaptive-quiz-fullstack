@@ -4,7 +4,7 @@
  */
 
 import { create } from 'zustand';
-import { devtools, persist } from 'zustand/middleware';
+import { devtools } from 'zustand/middleware';
 import { immer } from 'zustand/middleware/immer';
 import {
   Session,
@@ -17,6 +17,7 @@ import {
   QuizUIState,
 } from '@/types/quiz';
 import { quizApi } from '@/services/quizApi';
+import { secureStorage, DataClassification, PIIType } from '@/utils/dataProtection';
 
 interface QuizState {
   // Session Management
@@ -53,6 +54,11 @@ interface QuizState {
   resetQuiz: () => void;
   clearError: () => void;
   
+  // Secure Storage Actions
+  loadPersistedState: () => Promise<void>;
+  saveSessionSecurely: () => Promise<void>;
+  clearSecureStorage: () => void;
+  
   // UI Actions
   selectAnswer: (answerId: string) => void;
   unselectAnswer: (answerId: string) => void;
@@ -63,8 +69,7 @@ interface QuizState {
 
 export const useQuizStore = create<QuizState>()(
   devtools(
-    persist(
-      immer((set, get) => ({
+    immer((set, get) => ({
         // Initial State
         currentSession: null,
         isCreatingSession: false,
@@ -373,18 +378,96 @@ export const useQuizStore = create<QuizState>()(
             state.ui.timeRemaining = time;
           });
         },
+
+        // Secure Storage Actions
+        loadPersistedState: async () => {
+          try {
+            const sessionData = await secureStorage.retrieve('quiz_session');
+            const progressData = await secureStorage.retrieve('quiz_progress');
+            const historyData = await secureStorage.retrieve('quiz_history');
+            
+            if (sessionData || progressData || historyData) {
+              set((state) => {
+                if (sessionData) state.currentSession = sessionData;
+                if (progressData) state.progress = progressData;
+                if (historyData) state.questionHistory = historyData;
+              });
+            }
+          } catch (error) {
+            console.warn('Failed to load persisted quiz state:', error);
+          }
+        },
+
+        saveSessionSecurely: async () => {
+          const { currentSession, progress, questionHistory } = get();
+          
+          try {
+            if (currentSession) {
+              await secureStorage.store('quiz_session', currentSession, {
+                classification: DataClassification.CONFIDENTIAL,
+                piiType: PIIType.QUIZ_RESULTS,
+                purpose: 'Quiz session state management',
+                legalBasis: 'Contract performance',
+                expiresIn: 30 * 24 * 60 * 60 * 1000, // 30 days
+              });
+            }
+            
+            if (progress) {
+              await secureStorage.store('quiz_progress', progress, {
+                classification: DataClassification.INTERNAL,
+                piiType: PIIType.QUIZ_RESULTS,
+                purpose: 'Learning progress tracking',
+                legalBasis: 'Legitimate interest',
+                expiresIn: 2 * 365 * 24 * 60 * 60 * 1000, // 2 years
+              });
+            }
+            
+            if (questionHistory.length > 0) {
+              await secureStorage.store('quiz_history', questionHistory, {
+                classification: DataClassification.INTERNAL,
+                purpose: 'Quiz history for analytics',
+                legalBasis: 'Legitimate interest',
+                expiresIn: 90 * 24 * 60 * 60 * 1000, // 90 days
+              });
+            }
+          } catch (error) {
+            console.warn('Failed to save quiz state securely:', error);
+          }
+        },
+
+        clearSecureStorage: () => {
+          try {
+            secureStorage.remove('quiz_session');
+            secureStorage.remove('quiz_progress');
+            secureStorage.remove('quiz_history');
+          } catch (error) {
+            console.warn('Failed to clear secure storage:', error);
+          }
+        },
       })),
-      {
-        name: 'quiz-store',
-        partialize: (state) => ({
-          currentSession: state.currentSession,
-          questionHistory: state.questionHistory,
-          progress: state.progress,
-        }),
-      }
-    ),
     {
       name: 'quiz-store',
     }
   )
 );
+
+// Auto-save to secure storage when important state changes
+let lastSessionId: string | null = null;
+useQuizStore.subscribe((state) => {
+  const currentSessionId = state.currentSession?.sessionId || null;
+  
+  // Save when session changes or important updates occur
+  if (currentSessionId !== lastSessionId || state.progress || state.currentSession) {
+    lastSessionId = currentSessionId;
+    
+    // Debounce saves to avoid excessive storage operations
+    setTimeout(() => {
+      useQuizStore.getState().saveSessionSecurely();
+    }, 1000);
+  }
+});
+
+// Load persisted state on store initialization
+if (typeof window !== 'undefined') {
+  useQuizStore.getState().loadPersistedState();
+}
