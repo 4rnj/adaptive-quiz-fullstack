@@ -1,0 +1,385 @@
+# =================================
+# React + Python + Serverless .gitignore
+# Comprehensive ignore patterns for adaptive quiz project
+# =================================
+
+# ===== DEPENDENCIES =====
+# Node.js
+node_modules/
+frontend/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.coverage
+.coverage.*
+.cache
+.pytest_cache/
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+
+# ===== BUILD OUTPUTS =====
+# React/Vite
+dist/
+build/
+.next/
+out/
+.nuxt
+.vuepress/dist
+.docusaurus
+
+# Python
+*.egg-info/
+.eggs/
+dist/
+build/
+*.egg
+.installed.cfg
+
+# Serverless Framework
+.serverless/
+.build/
+.webpack/
+.esbuild/
+serverless-*.zip
+
+# AWS
+.aws-sam/
+sam-build/
+.chalice/deployments/
+.chalice/venv/
+
+# ===== ENVIRONMENT & CONFIG =====
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env.*.local
+
+# AWS credentials (security critical)
+.aws/credentials
+.aws/config
+aws-exports.js
+
+# Serverless environment
+serverless.env.yml
+.serverlessrc
+
+# Config files with secrets
+config/secrets.yml
+config/local.yml
+*.pem
+*.key
+*.p12
+*.pfx
+
+# ===== IDE & EDITOR FILES =====
+# VSCode
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# JetBrains
+.idea/
+*.iws
+*.iml
+*.ipr
+
+# Vim
+*.swp
+*.swo
+*~
+
+# Emacs
+*~
+\#*\#
+/.emacs.desktop
+/.emacs.desktop.lock
+*.elc
+auto-save-list
+tramp
+.\#*
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# ===== OPERATING SYSTEM =====
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# ===== TESTING & COVERAGE =====
+# Test results
+coverage/
+.nyc_output/
+test-results/
+junit.xml
+test-report.xml
+
+# Playwright
+test-results/
+playwright-report/
+playwright/.cache/
+
+# Jest
+coverage/
+.nyc_output/
+
+# Python testing
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+.hypothesis/
+
+# ===== LOGS & DEBUGGING =====
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
+
+# Python logs
+*.log
+.logs/
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# ===== TEMPORARY FILES =====
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
+.temporary/
+tmp/
+temp/
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# ===== SECURITY & SECRETS =====
+# Security sensitive files
+*.pem
+*.key
+*.p8
+*.p12
+*.pfx
+secrets.json
+.secrets/
+
+# JWT tokens and API keys
+jwt-secret*
+api-keys*
+.env.secret
+
+# SSL certificates
+*.crt
+*.cer
+*.ca-bundle
+
+# ===== SERVERLESS SPECIFIC =====
+# Serverless deployment artifacts
+.serverless/
+serverless-*.zip
+.requirements/
+.requirements.zip
+.dynamodb/
+.build/
+.webpack/
+.warmup/
+
+# CloudFormation
+.cfn-lint-cache/
+cfn-lint.log
+
+# Terraform (if used)
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+
+# ===== AWS & CLOUD =====
+# AWS CDK
+cdk.out/
+cdk.context.json
+
+# LocalStack
+.localstack/
+localstack-data/
+
+# Docker
+.dockerignore
+docker-compose.override.yml
+
+# ===== DATABASE =====
+# Local databases
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+
+# DynamoDB Local
+.dynamodb/
+dynamodb-local/
+
+# ===== FRONTEND SPECIFIC =====
+# Storybook
+storybook-static/
+
+# Bundle analyzer
+.bundle-analyzer/
+
+# Type checking
+.tsbuildinfo
+
+# ESLint cache
+.eslintcache
+
+# Stylelint cache
+.stylelintcache
+
+# ===== PYTHON SPECIFIC =====
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Spyder
+.spyderproject
+.spyproject
+
+# Rope
+.ropeproject
+
+# mkdocs
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre
+.pyre/
+
+# ===== DOCUMENTATION =====
+# Auto-generated docs
+docs/_build/
+site/
+
+# ===== MISC =====
+# Yarn Integrity file
+.yarn-integrity
+
+# parcel-bundler cache
+.cache
+.parcel-cache
+
+# NSIS
+*.nsis
+
+# Firebase
+.firebase/
+.firebaserc
+firebase-debug.log
+
+# Vercel
+.vercel
+
+# ===== CUSTOM PROJECT EXCLUSIONS =====
+# Project-specific temporary files
+EMERGENCY_TYPESCRIPT_SPRINT.md
+PRODUCT_OWNERSHIP_ASSESSMENT.md
+PROJECT_DASHBOARD.md
+PROJECT_MANAGEMENT_ASSESSMENT.md
+SYSTEM_ARCHITECTURE_ASSESSMENT.md
+
+# Python cache directories
+src/handlers/__pycache__/
+src/services/__pycache__/
+src/utils/__pycache__/
+tests/__pycache__/
+tests/integration/__pycache__/
+tests/performance/__pycache__/
+tests/unit/__pycache__/
+
+# ===== KEEP THESE FILES =====
+# Keep important configuration files
+!.gitkeep
+!.env.example
+!.env.template
+!serverless.example.yml
+!docker-compose.example.yml
