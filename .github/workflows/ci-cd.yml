@@ -20,7 +20,7 @@ on:
 env:
   NODE_VERSION: '18'
   PYTHON_VERSION: '3.13'
-  AWS_DEFAULT_REGION: us-east-1
+  AWS_DEFAULT_REGION: eu-central-1
 
 jobs:
   # Backend Testing and Linting

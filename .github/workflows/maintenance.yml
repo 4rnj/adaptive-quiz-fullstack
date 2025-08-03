@@ -21,7 +21,7 @@ on:
           - update-dependencies
 
 env:
-  AWS_DEFAULT_REGION: us-east-1
+  AWS_DEFAULT_REGION: eu-central-1
   PYTHON_VERSION: '3.13'
   NODE_VERSION: '18'
 
