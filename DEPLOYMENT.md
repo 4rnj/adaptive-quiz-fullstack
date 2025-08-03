@@ -91,7 +91,7 @@ aws configure
 # Option 2: Environment Variables
 export AWS_ACCESS_KEY_ID=your_access_key
 export AWS_SECRET_ACCESS_KEY=your_secret_key
-export AWS_DEFAULT_REGION=us-east-1
+export AWS_DEFAULT_REGION=eu-central-1
 
 # Option 3: IAM Roles (recommended for EC2/Lambda)
 ```

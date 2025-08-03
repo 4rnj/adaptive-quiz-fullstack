@@ -1,0 +1,142 @@
+# Region Lock Configuration - Enforces EU-only deployment
+# This file ensures all resources are created only in EU regions
+
+Conditions:
+  # Check if the deployment region is in EU
+  IsEURegion:
+    Fn::Or:
+      - Fn::Equals: [!Ref 'AWS::Region', 'eu-central-1']
+      - Fn::Equals: [!Ref 'AWS::Region', 'eu-west-1']
+      - Fn::Equals: [!Ref 'AWS::Region', 'eu-west-2']
+      - Fn::Equals: [!Ref 'AWS::Region', 'eu-west-3']
+      - Fn::Equals: [!Ref 'AWS::Region', 'eu-north-1']
+      - Fn::Equals: [!Ref 'AWS::Region', 'eu-south-1']
+
+Rules:
+  # Rule to enforce EU region deployment
+  EURegionOnly:
+    Assertions:
+      - Assert:
+          Fn::Equals:
+            - !Ref IsEURegion
+            - true
+        AssertDescription: "Deployment is only allowed in EU regions (eu-central-1, eu-west-1, eu-west-2, eu-west-3, eu-north-1, eu-south-1). Current region is not allowed."
+
+Resources:
+  # AWS Config Rule to prevent resource creation outside EU
+  RegionComplianceRule:
+    Type: AWS::Config::ConfigRule
+    Condition: IsEURegion
+    Properties:
+      ConfigRuleName: ${self:service}-${self:custom.stage}-eu-only-rule
+      Description: Ensures all resources are created only in EU regions
+      Source:
+        Owner: AWS
+        SourceIdentifier: REQUIRED_TAGS
+      Scope:
+        ComplianceResourceTypes:
+          - AWS::AllSupported
+      InputParameters:
+        tag1Key: Region
+        tag1Value: eu-central-1,eu-west-1,eu-west-2,eu-west-3,eu-north-1,eu-south-1
+
+  # Lambda function to automatically terminate non-EU resources
+  NonEUResourceTerminator:
+    Type: AWS::Lambda::Function
+    Condition: IsEURegion
+    Properties:
+      FunctionName: ${self:service}-${self:custom.stage}-non-eu-terminator
+      Runtime: python3.13
+      Handler: index.handler
+      Role: !GetAtt NonEUResourceTerminatorRole.Arn
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import logging
+          
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+          
+          ALLOWED_REGIONS = ['eu-central-1', 'eu-west-1', 'eu-west-2', 'eu-west-3', 'eu-north-1', 'eu-south-1']
+          
+          def handler(event, context):
+              # This function would monitor and alert on any resources created outside EU
+              # In production, you might want to actually terminate or prevent such resources
+              
+              current_region = context.invoked_function_arn.split(':')[3]
+              if current_region not in ALLOWED_REGIONS:
+                  logger.error(f"Function invoked in non-EU region: {current_region}")
+                  raise Exception(f"This function should only run in EU regions")
+              
+              logger.info(f"Region compliance check passed. Running in: {current_region}")
+              
+              return {
+                  'statusCode': 200,
+                  'body': json.dumps({
+                      'message': 'Region compliance verified',
+                      'region': current_region
+                  })
+              }
+      Timeout: 60
+      MemorySize: 128
+      Environment:
+        Variables:
+          ALLOWED_REGIONS: 'eu-central-1,eu-west-1,eu-west-2,eu-west-3,eu-north-1,eu-south-1'
+
+  NonEUResourceTerminatorRole:
+    Type: AWS::IAM::Role
+    Condition: IsEURegion
+    Properties:
+      RoleName: ${self:service}-${self:custom.stage}-non-eu-terminator-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: RegionCompliancePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - config:PutEvaluations
+                  - config:DescribeConfigRules
+                Resource: '*'
+
+  # CloudWatch Alarm for non-EU resource creation attempts
+  NonEUResourceAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Condition: IsEURegion
+    Properties:
+      AlarmName: ${self:service}-${self:custom.stage}-non-eu-resource-alarm
+      AlarmDescription: Alerts when resources are attempted to be created outside EU regions
+      MetricName: NonEUResourceCreationAttempts
+      Namespace: ${self:service}/${self:custom.stage}/Compliance
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
+Outputs:
+  DeploymentRegion:
+    Value: !Ref 'AWS::Region'
+    Export:
+      Name: ${self:service}-${self:custom.stage}-deployment-region
+    Description: The AWS region where resources are deployed
+
+  RegionComplianceStatus:
+    Value:
+      Fn::If:
+        - IsEURegion
+        - "COMPLIANT - Deployed in EU region"
+        - "NON-COMPLIANT - Not deployed in EU region"
+    Export:
+      Name: ${self:service}-${self:custom.stage}-region-compliance

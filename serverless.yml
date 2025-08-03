@@ -4,7 +4,7 @@ frameworkVersion: '4'
 custom:
   # Environment-specific configurations
   stage: ${opt:stage, 'dev'}
-  region: ${opt:region, 'us-east-1'}
+  region: ${opt:region, 'eu-central-1'}
   owner: adaptive-quiz-team
   
   # Cost center configuration
@@ -503,10 +503,11 @@ functions:
 
 # CloudFormation resources
 resources:
+  - ${file(infrastructure/region-lock.yml)}
   - ${file(infrastructure/dynamodb.yml)}
   - ${file(infrastructure/cognito.yml)}
   - ${file(infrastructure/monitoring.yml)}
-  - ${file(infrastructure/s3.yml)}
+  - ${file(infrastructure/s3-website.yml)}
   - ${file(infrastructure/security.yml)}
 
 # Outputs

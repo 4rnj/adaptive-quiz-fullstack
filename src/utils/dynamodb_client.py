@@ -98,7 +98,7 @@ class OptimizedDynamoDBClient:
         
         # Configure client with connection pooling
         config = boto3.session.Config(
-            region_name='us-east-1',
+            region_name='eu-central-1',
             retries={
                 'max_attempts': 3,
                 'mode': 'adaptive'

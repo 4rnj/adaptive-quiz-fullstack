@@ -14,7 +14,7 @@ NC='\033[0m' # No Color
 
 # Default values
 ENVIRONMENT=""
-AWS_REGION="us-east-1"
+AWS_REGION="eu-central-1"
 SKIP_TESTS=false
 SKIP_BUILD=false
 DRY_RUN=false
@@ -37,7 +37,7 @@ print_usage() {
     echo "  prod      Production environment"
     echo ""
     echo "Options:"
-    echo "  --region <region>     AWS region (default: us-east-1)"
+    echo "  --region <region>     AWS region (default: eu-central-1)"
     echo "  --skip-tests         Skip running tests"
     echo "  --skip-build         Skip building frontend"
     echo "  --dry-run            Show what would be deployed without deploying"
@@ -46,7 +46,7 @@ print_usage() {
     echo ""
     echo "Examples:"
     echo "  $0 dev"
-    echo "  $0 staging --region us-west-2"
+    echo "  $0 staging --region eu-west-1"
     echo "  $0 prod --skip-tests --verbose"
 }
 
@@ -62,6 +62,28 @@ validate_environment() {
             exit 1
             ;;
     esac
+}
+
+# Function to validate region (EU-only enforcement)
+validate_region() {
+    # List of allowed EU regions
+    local allowed_regions=("eu-central-1" "eu-west-1" "eu-west-2" "eu-west-3" "eu-north-1" "eu-south-1")
+    local region_valid=false
+    
+    for allowed in "${allowed_regions[@]}"; do
+        if [ "$AWS_REGION" = "$allowed" ]; then
+            region_valid=true
+            break
+        fi
+    done
+    
+    if [ "$region_valid" = false ]; then
+        print_message $RED "✗ Region '$AWS_REGION' is not allowed. Only EU regions are permitted."
+        print_message $YELLOW "Allowed regions: ${allowed_regions[*]}"
+        exit 1
+    else
+        print_message $GREEN "✓ Region '$AWS_REGION' is valid (EU region)"
+    fi
 }
 
 # Function to check prerequisites
@@ -417,6 +439,7 @@ main() {
     
     # Execute deployment steps
     validate_environment
+    validate_region
     check_prerequisites
     install_dependencies
     run_tests
