@@ -13,7 +13,7 @@ import {
   AnswerResult,
   ProgressIndicator,
   SessionConfig,
-  NextAction,
+  // NextAction,
   QuizUIState,
 } from '@/types/quiz';
 import { quizApi } from '@/services/quizApi';
@@ -214,7 +214,7 @@ export const useQuizStore = create<QuizState>()(
               }
 
               // Handle immediate retry for wrong answers
-              if (result.nextAction === NextAction.RETRY_SAME_QUESTION && result.question) {
+              if (result.nextAction === 'RETRY_SAME_QUESTION' && result.question) {
                 state.currentQuestion = result.question;
                 state.ui.currentQuestion = result.question;
                 state.ui.selectedAnswers = [];
@@ -228,7 +228,7 @@ export const useQuizStore = create<QuizState>()(
             });
 
             // Auto-advance to next question if correct
-            if (result.nextAction === NextAction.NEXT_QUESTION) {
+            if (result.nextAction === 'NEXT_QUESTION') {
               setTimeout(() => {
                 get().getCurrentQuestion();
               }, 2000); // 2 second delay to show result
@@ -352,7 +352,7 @@ export const useQuizStore = create<QuizState>()(
 
         unselectAnswer: (answerId: string) => {
           set((state) => {
-            state.ui.selectedAnswers = state.ui.selectedAnswers.filter(id => id !== answerId);
+            state.ui.selectedAnswers = state.ui.selectedAnswers.filter((id: string) => id !== answerId);
           });
         },
 

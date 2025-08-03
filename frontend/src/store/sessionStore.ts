@@ -11,7 +11,7 @@ import {
   SessionConfig,
   SessionCreationState,
   Language,
-  QuizFilters,
+  // QuizFilters,
 } from '@/types/quiz';
 
 interface AvailableSource {
@@ -262,7 +262,7 @@ export const useSessionCreationStore = create<SessionCreationStore>()(
       },
 
       nextStep: () => {
-        const { creationState } = get();
+        // const { creationState } = get();
         const isValid = get().validateConfiguration();
         
         if (!isValid) return;
