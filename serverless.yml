@@ -256,6 +256,9 @@ provider:
     Owner: ${self:custom.owner}
     CostCenter: ${self:custom.costCenter.${self:custom.stage}}
     Version: ${env:GITHUB_SHA, 'local'}
+    CreatedBy: claude-code
+    ManagedBy: serverless-framework
+    Region: ${self:custom.region}
     
   # IAM permissions
   iam:
